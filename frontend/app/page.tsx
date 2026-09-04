@@ -19,18 +19,35 @@ interface Product {
   category_name?: string;
 }
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
+
 export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<string | null>(null);
 
-  // Filter States
+  // Search, Filter & Sort States
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [addingId, setAddingId] = useState<number | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+  // LocalStorage से लॉगिन यूज़र का नाम पढ़ें
+  useEffect(() => {
+    const storedUser = localStorage.getItem('username');
+    if (storedUser) {
+      setUser(storedUser);
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('username');
+    setUser(null);
+    window.location.reload();
+  };
 
   const fetchProducts = async () => {
     setLoading(true);
@@ -40,23 +57,18 @@ export default function HomePage() {
       if (selectedCategory !== 'all') queryParams.append('category', selectedCategory);
       if (sortBy !== 'newest') queryParams.append('sort', sortBy);
 
-      const res = await fetch(`${apiUrl}/api/products/?${queryParams.toString()}`);
+      const res = await fetch(`${API_BASE_URL}/api/products/?${queryParams.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setProducts(data);
-        } else if (data && Array.isArray(data.products)) {
+        if (data.products) {
           setProducts(data.products);
           setCategories(data.categories || []);
-        } else {
-          setProducts([]);
+        } else if (Array.isArray(data)) {
+          setProducts(data);
         }
-      } else {
-        setProducts([]);
       }
     } catch (err) {
       console.error('Failed to fetch products', err);
-      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -79,7 +91,7 @@ export default function HomePage() {
 
     setAddingId(productId);
     try {
-      const res = await fetch(`${apiUrl}/api/cart/add/`, {
+      const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -103,17 +115,17 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-20">
       {/* Top Header */}
-      <header className="bg-white border-b sticky top-0 z-50">
+      <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <Link href="/" className="text-2xl font-black text-blue-600 flex-shrink-0">
             MegaStore
           </Link>
 
-          {/* Search Bar */}
+          {/* Live Search */}
           <div className="flex-1 max-w-xl relative">
             <input
               type="text"
-              placeholder="Search products, categories..."
+              placeholder="Search products, brands, electronics..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border rounded-full text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
@@ -122,14 +134,32 @@ export default function HomePage() {
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-3.5 top-2.5 text-xs text-gray-400 hover:text-gray-700 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
+                className="absolute right-3.5 top-2 text-xs text-gray-400 hover:text-gray-700 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
               >
                 ✕
               </button>
             )}
           </div>
 
-          <div className="flex items-center space-x-5 flex-shrink-0">
+          {/* User Nav */}
+          <div className="flex items-center space-x-4 flex-shrink-0">
+            {user ? (
+              <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded-lg border">
+                <span className="text-xs font-bold text-gray-700">Hi, {user}!</span>
+                <span className="text-gray-300">|</span>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs text-red-500 hover:text-red-700 font-semibold cursor-pointer"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <Link href="/login" className="text-sm font-semibold text-blue-600 hover:underline">
+                Sign In
+              </Link>
+            )}
+
             <Link href="/orders" className="text-sm font-semibold text-gray-700 hover:text-blue-600">
               My Orders
             </Link>
@@ -139,7 +169,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Category & Sorting Bar */}
+        {/* Categories Bar */}
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3 border-t bg-white">
           <div className="flex items-center space-x-2 overflow-x-auto pb-1 max-w-full">
             <button
@@ -152,7 +182,7 @@ export default function HomePage() {
             >
               All Categories
             </button>
-            {Array.isArray(categories) && categories.map((cat) => (
+            {categories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.id.toString())}
@@ -167,8 +197,9 @@ export default function HomePage() {
             ))}
           </div>
 
+          {/* Sort Dropdown */}
           <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-gray-500">Sort:</span>
+            <span className="text-xs font-bold text-gray-500">Sort by:</span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -182,18 +213,18 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Product Grid */}
+      {/* Main Catalog Grid */}
       <main className="max-w-7xl mx-auto px-4 pt-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-extrabold text-gray-900">
             {search ? `Search results for "${search}"` : 'Explore Products'}
           </h2>
-          <span className="text-xs font-bold text-gray-500">{Array.isArray(products) ? products.length : 0} Products</span>
+          <span className="text-xs font-bold text-gray-500">{products.length} Products Found</span>
         </div>
 
         {loading ? (
           <div className="text-center py-24 text-gray-400 font-bold">Finding best matches...</div>
-        ) : !Array.isArray(products) || products.length === 0 ? (
+        ) : products.length === 0 ? (
           <div className="bg-white border rounded-2xl p-16 text-center shadow-sm">
             <span className="text-4xl block mb-3">🔍</span>
             <p className="text-gray-700 font-bold text-lg">कोई उत्पाद नहीं मिला।</p>
@@ -207,56 +238,48 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {products.map((item) => {
-              const imageUrl = item.image
-                ? (item.image.startsWith('http') ? item.image : `${apiUrl}${item.image}`)
+            {products.map((product) => {
+              const imageUrl = product.image
+                ? (product.image.startsWith('http') ? product.image : `${API_BASE_URL}${product.image}`)
                 : null;
 
               return (
                 <div
-                  key={item.id}
+                  key={product.id}
                   className="bg-white border rounded-2xl p-4 shadow-sm hover:shadow-md transition flex flex-col justify-between"
                 >
                   <div>
-                    <Link href={`/products/${item.id}`} className="group block">
-                      <div className="w-full h-48 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden relative">
-                        {imageUrl ? (
-                          <img 
-                            src={imageUrl} 
-                            alt={item.title} 
-                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300" 
-                          />
-                        ) : (
-                          <span className="text-xs text-gray-400 font-bold">No Image</span>
-                        )}
-                        {item.category_name && (
-                          <span className="absolute top-2 left-2 bg-white/90 backdrop-blur-xs text-[10px] font-extrabold px-2 py-0.5 rounded shadow-xs text-gray-700">
-                            {item.category_name}
-                          </span>
-                        )}
-                      </div>
+                    <div className="w-full h-48 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden relative">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={product.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs text-gray-400 font-bold">No Image</span>
+                      )}
+                      {product.category_name && (
+                        <span className="absolute top-2 left-2 bg-white/90 backdrop-blur-xs text-[10px] font-extrabold px-2 py-0.5 rounded shadow-xs text-gray-700">
+                          {product.category_name}
+                        </span>
+                      )}
+                    </div>
 
-                      <h3 className="font-bold text-gray-900 text-sm mb-1 line-clamp-2 group-hover:text-blue-600 transition">
-                        {item.title}
-                      </h3>
-                    </Link>
-                    <p className="text-gray-500 text-xs line-clamp-2 mb-3">{item.description}</p>
+                    <h3 className="font-bold text-gray-900 text-sm mb-1 line-clamp-2">{product.title}</h3>
+                    <p className="text-gray-500 text-xs line-clamp-2 mb-3">{product.description}</p>
                   </div>
 
                   <div>
                     <div className="flex items-baseline space-x-2 mb-4">
-                      <span className="text-lg font-black text-gray-900">₹{item.price}</span>
-                      {item.original_price && (
-                        <span className="text-xs text-gray-400 line-through">₹{item.original_price}</span>
+                      <span className="text-lg font-black text-gray-900">₹{product.price}</span>
+                      {product.original_price && (
+                        <span className="text-xs text-gray-400 line-through">₹{product.original_price}</span>
                       )}
                     </div>
 
                     <button
-                      onClick={() => handleAddToCart(item.id)}
-                      disabled={addingId === item.id}
-                      className="w-full bg-blue-600 text-white font-bold text-xs py-2.5 rounded-xl hover:bg-blue-700 transition disabled:bg-blue-300 shadow-sm"
+                      onClick={() => handleAddToCart(product.id)}
+                      disabled={addingId === product.id}
+                      className="w-full bg-blue-600 text-white font-bold text-xs py-2.5 rounded-xl hover:bg-blue-700 transition disabled:bg-blue-300 shadow-sm cursor-pointer"
                     >
-                      {addingId === item.id ? 'Adding...' : 'Add to Cart 🛒'}
+                      {addingId === product.id ? 'Adding...' : 'Add to Cart 🛒'}
                     </button>
                   </div>
                 </div>
