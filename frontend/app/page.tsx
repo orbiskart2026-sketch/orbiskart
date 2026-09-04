@@ -22,13 +22,15 @@ interface Product {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
+// Flipkart / Amazon / Ajio / Myntra स्टाइल पूरी कैटेगरी लिस्ट (Fashion, Sarees & Suits, Jewellery सहित)
 const DEFAULT_TOP_CATEGORIES = [
   { key: 'all', name: 'All Store', icon: '🛍️' },
+  { key: 'fashion', name: 'Fashion', icon: '👗' },
+  { key: 'sarees_suits', name: 'Sarees & Suits', icon: '🥻' },
+  { key: 'jewellery', name: 'Jewellery', icon: '💍' },
   { key: 'gifts', name: 'Gift Store', icon: '🎁' },
-  { key: 'kitchen', name: 'Kitchen', icon: '🍳' },
-  { key: 'machinery', name: 'Machinery', icon: '⚙️' },
-  { key: 'nursery', name: 'Nursery', icon: '🌱' },
-  { key: 'medicine', name: 'Medicines', icon: '💊' },
+  { key: 'men', name: 'Men', icon: '👔' },
+  { key: 'women', name: 'Women', icon: '👚' },
   { key: 'boys', name: 'Boys', icon: '👦' },
   { key: 'girls', name: 'Girls', icon: '👧' },
   { key: 'kids', name: 'Kids & Toys', icon: '🧸' },
@@ -36,8 +38,10 @@ const DEFAULT_TOP_CATEGORIES = [
   { key: 'riding', name: 'Riding & Bikes', icon: '🏍️' },
   { key: 'books', name: 'Books', icon: '📚' },
   { key: 'stationery', name: 'Stationery', icon: '✏️' },
-  { key: 'men', name: 'Men', icon: '👔' },
-  { key: 'women', name: 'Women', icon: '👗' },
+  { key: 'kitchen', name: 'Kitchen', icon: '🍳' },
+  { key: 'machinery', name: 'Machinery', icon: '⚙️' },
+  { key: 'nursery', name: 'Nursery', icon: '🌱' },
+  { key: 'medicine', name: 'Medicines', icon: '💊' },
   { key: 'mobiles', name: 'Mobiles', icon: '📱' },
   { key: 'electronics', name: 'Electronics', icon: '💻' },
   { key: 'grocery', name: 'Grocery', icon: '🛒' },
@@ -135,7 +139,6 @@ export default function HomePage() {
     localStorage.setItem('wishlist_items', JSON.stringify(updated));
   };
 
-  // स्मूथ स्क्रॉल फ़ंक्शन
   const scrollCategories = (direction: 'left' | 'right') => {
     if (categoryScrollRef.current) {
       const scrollAmount = direction === 'left' ? -220 : 220;
@@ -143,7 +146,6 @@ export default function HomePage() {
     }
   };
 
-  // All Products / All Store पर पूरा रीसेट
   const resetAllFilters = () => {
     setSelectedCategory('all');
     setFilterType('all');
@@ -231,18 +233,18 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Header */}
+      {/* Header with OrbisKart Branding */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
-          <Link href="/" className="text-xl sm:text-2xl font-black text-blue-600 flex-shrink-0">
-  OrbisKart
-</Link>
+          <Link href="/" className="text-xl sm:text-2xl font-black text-blue-600 flex-shrink-0 tracking-tight">
+            OrbisKart
+          </Link>
 
           {/* Search Box */}
           <div className="flex-1 max-w-lg relative">
             <input
               type="text"
-              placeholder="Search products, brands..."
+              placeholder="Search sarees, suits, jewellery, fashion, electronics..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-7 py-1.5 sm:py-2 border border-gray-300 rounded-full text-xs sm:text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -268,24 +270,24 @@ export default function HomePage() {
                 <span className="text-gray-300">|</span>
                 <button
                   onClick={handleLogout}
-                  className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-bold"
+                  className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-bold cursor-pointer"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <Link href="/login" className="text-xs sm:text-sm font-semibold text-blue-600">
+              <Link href="/login" className="text-xs sm:text-sm font-semibold text-blue-600 hover:underline">
                 Sign In
               </Link>
             )}
 
-            <Link href="/orders" className="hidden sm:inline-block text-xs font-semibold text-gray-700">
+            <Link href="/orders" className="hidden sm:inline-block text-xs font-semibold text-gray-700 hover:text-blue-600">
               Orders
             </Link>
 
             <Link
               href="/cart"
-              className="relative flex items-center gap-1 text-xs sm:text-sm font-bold bg-blue-600 text-white px-3 py-1.5 rounded-lg shadow-xs"
+              className="relative flex items-center gap-1 text-xs sm:text-sm font-bold bg-blue-600 text-white px-3 py-1.5 rounded-lg shadow-xs hover:bg-blue-700 transition"
             >
               <span>🛒</span>
               <span className="hidden sm:inline">Cart</span>
@@ -298,7 +300,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Categories Bar with Left & Right Arrow Buttons */}
+        {/* Categories Bar with Left & Right Arrows (Sarees, Suits, Jewellery Added) */}
         <div className="bg-white border-t border-gray-100 relative">
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
             {/* Left Scroll Arrow */}
@@ -310,7 +312,7 @@ export default function HomePage() {
               ❮
             </button>
 
-            {/* Scrollable Icons Container */}
+            {/* Scrollable Container */}
             <div
               ref={categoryScrollRef}
               className="flex items-center space-x-4 sm:space-x-6 overflow-x-auto no-scrollbar scroll-smooth py-1 px-2 mx-1 flex-1"
@@ -378,7 +380,7 @@ export default function HomePage() {
               })}
             </div>
 
-            {/* Right Scroll Arrow >> */}
+            {/* Right Scroll Arrow */}
             <button
               onClick={() => scrollCategories('right')}
               className="p-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full flex-shrink-0 cursor-pointer font-bold text-base"
@@ -469,10 +471,10 @@ export default function HomePage() {
         ) : products.length === 0 ? (
           <div className="bg-white border rounded-2xl p-12 text-center shadow-sm">
             <span className="text-4xl block mb-2">🔍</span>
-            <p className="text-gray-700 font-bold text-sm">इस कैटेगरी में कोई उत्पाद नहीं मिला।</p>
+            <p className="text-gray-700 font-bold text-sm">इस श्रेणी में कोई उत्पाद नहीं मिला।</p>
             <button
               onClick={resetAllFilters}
-              className="mt-3 inline-block bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg text-xs hover:bg-blue-700"
+              className="mt-3 inline-block bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg text-xs hover:bg-blue-700 cursor-pointer"
             >
               सभी उत्पाद देखें (All Products)
             </button>
@@ -498,7 +500,7 @@ export default function HomePage() {
                   {/* Wishlist Button */}
                   <button
                     onClick={() => toggleWishlist(product.id)}
-                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm"
+                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer"
                   >
                     {isFav ? '❤️' : '🤍'}
                   </button>
@@ -543,7 +545,7 @@ export default function HomePage() {
                       <button
                         onClick={() => handleAddToCart(product.id, false)}
                         disabled={addingId === product.id}
-                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition"
+                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
                       >
                         {addingId === product.id ? '...' : 'Add to Cart 🛒'}
                       </button>
@@ -551,7 +553,7 @@ export default function HomePage() {
                       <button
                         onClick={() => handleAddToCart(product.id, true)}
                         disabled={addingId === product.id}
-                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition"
+                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
                       >
                         ⚡ Buy Now
                       </button>
