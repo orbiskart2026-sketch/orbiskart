@@ -69,30 +69,30 @@ export default function CartPage() {
     if (storedMobile) setPhone(storedMobile);
   }, []);
 
-  // मात्रा बढ़ाना (+1) या घटाना (-1)
+  // मात्रा बढ़ाना या घटाना
   const changeQuantity = async (productId: number, delta: number, currentQty: number) => {
     const token = localStorage.getItem('access_token');
     if (!token) return;
 
-    // यदि मात्रा 1 है और यूजर माइनस (-) दबाता है, तो उत्पाद हटा दें
-    if (currentQty === 1 && delta === -1) {
+    // अगर मात्रा 1 है और माइनस दबाया तो आइटम हटा दें
+    if (currentQty <= 1 && delta === -1) {
       handleRemoveItem(productId);
       return;
     }
 
     setActionLoadingId(productId);
     try {
+      // 1. कोशिश करें कि बैकएंड पर update/ या add/ से रिक्वेस्ट भेजी जाए
       const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product_id: productId, quantity: delta }),
+        body: JSON.stringify({ product_id: productId, quantity: delta, action: delta < 0 ? 'decrease' : 'increase' }),
       });
 
       if (res.ok) {
-        // ताज़ा कार्ट डेटा फ़ेच करें
         await fetchCart();
       } else {
         alert('मात्रा अपडेट करने में समस्या आई।');
@@ -104,15 +104,15 @@ export default function CartPage() {
     }
   };
 
-  // उत्पाद को कार्ट से पूरी तरह डिलीट करना
+  // कार्ट से प्रोडक्ट पूरी तरह हटाना (Remove / Delete)
   const handleRemoveItem = async (productId: number) => {
     const token = localStorage.getItem('access_token');
     if (!token) return;
 
     setActionLoadingId(productId);
     try {
-      // पहले चेक करें कि बैकएंड में रिमूव एंडपॉइंट है या नहीं
-      const res = await fetch(`${API_BASE_URL}/api/cart/remove/`, {
+      // कई Django बैकएंड में /api/cart/remove/ या /api/cart/delete/ होता है
+      let res = await fetch(`${API_BASE_URL}/api/cart/remove/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,23 +121,19 @@ export default function CartPage() {
         body: JSON.stringify({ product_id: productId }),
       });
 
-      if (res.ok) {
-        await fetchCart();
-      } else {
-        // फॉलबैक: यदि बैकएंड में रिमूव रूट अलग हो तो माइनस डेल्टा से शून्य करें
-        const targetItem = items.find((i) => i.product.id === productId);
-        if (targetItem) {
-          await fetch(`${API_BASE_URL}/api/cart/add/`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ product_id: productId, quantity: -targetItem.quantity }),
-          });
-          await fetchCart();
-        }
+      if (!res.ok) {
+        // अगर remove/ नहीं है, तो delete/ ट्राई करें
+        res = await fetch(`${API_BASE_URL}/api/cart/delete/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ product_id: productId }),
+        });
       }
+
+      await fetchCart();
     } catch (err) {
       console.error(err);
     } finally {
@@ -194,7 +190,7 @@ export default function CartPage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      <header className="bg-white border-b sticky top-0 z-50">
+      <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
             MegaStore
@@ -284,10 +280,10 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Cart Items List */}
+              {/* Cart Items List with Visible Remove Button */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span>🛍️</span> Cart Items ({items.length})
+                  <span>🛍️</span> Cart Items ({items.length} Product{items.length > 1 ? 's' : ''})
                 </h2>
                 {items.map((item) => {
                   const img = item.product?.image
@@ -317,32 +313,35 @@ export default function CartPage() {
                         </div>
                       </div>
 
-                      {/* Quantity Controls & Delete Button */}
-                      <div className="flex items-center justify-between sm:justify-end gap-4">
+                      {/* Quantity Controls & Clear Remove Button */}
+                      <div className="flex items-center justify-between sm:justify-end gap-3">
                         <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
                           <button
                             onClick={() => changeQuantity(item.product.id, -1, item.quantity)}
                             disabled={isBusy}
-                            title={item.quantity === 1 ? 'कार्ट से हटाएँ' : 'कम करें'}
-                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                            title="संख्या घटाएँ"
+                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
                           >
                             -
                           </button>
-                          <span className="text-xs font-bold px-2">{isBusy ? '...' : item.quantity}</span>
+                          <span className="text-xs font-black px-2.5 min-w-[24px] text-center">
+                            {isBusy ? '...' : item.quantity}
+                          </span>
                           <button
                             onClick={() => changeQuantity(item.product.id, 1, item.quantity)}
                             disabled={isBusy}
-                            title="बढ़ाएँ"
-                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                            title="संख्या बढ़ाएँ"
+                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
                           >
                             +
                           </button>
                         </div>
 
+                        {/* Direct Delete / Remove Button */}
                         <button
                           onClick={() => handleRemoveItem(item.product.id)}
                           disabled={isBusy}
-                          className="text-xs text-red-600 hover:text-red-800 font-bold flex items-center gap-1 border border-red-200 hover:border-red-400 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer"
+                          className="text-xs text-red-600 hover:text-red-800 font-bold flex items-center gap-1 border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer"
                         >
                           🗑️ Remove
                         </button>
@@ -359,7 +358,7 @@ export default function CartPage() {
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
                 <div className="space-y-3 text-xs border-b pb-4">
                   <div className="flex justify-between text-gray-600">
-                    <span>Total Items (संख्या)</span>
+                    <span>Total Quantity</span>
                     <span>{totalItemsCount}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
