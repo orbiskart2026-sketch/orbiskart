@@ -235,8 +235,8 @@ export default function HomePage() {
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
           <Link href="/" className="text-xl sm:text-2xl font-black text-blue-600 flex-shrink-0">
-            MegaStore
-          </Link>
+  OrbisKart
+</Link>
 
           {/* Search Box */}
           <div className="flex-1 max-w-lg relative">
