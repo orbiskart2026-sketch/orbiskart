@@ -22,6 +22,7 @@ export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
   // Delivery Address Form
   const [fullName, setFullName] = useState('');
@@ -45,7 +46,6 @@ export default function CartPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        // अगर डेटा ऐरे है या data.items है
         if (Array.isArray(data)) {
           setItems(data);
         } else if (data.items) {
@@ -69,10 +69,18 @@ export default function CartPage() {
     if (storedMobile) setPhone(storedMobile);
   }, []);
 
-  const updateQuantity = async (productId: number, qty: number) => {
+  // मात्रा बढ़ाना (+1) या घटाना (-1)
+  const changeQuantity = async (productId: number, delta: number, currentQty: number) => {
     const token = localStorage.getItem('access_token');
-    if (!token || qty < 1) return;
+    if (!token) return;
 
+    // यदि मात्रा 1 है और यूजर माइनस (-) दबाता है, तो उत्पाद हटा दें
+    if (currentQty === 1 && delta === -1) {
+      handleRemoveItem(productId);
+      return;
+    }
+
+    setActionLoadingId(productId);
     try {
       const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
@@ -80,13 +88,60 @@ export default function CartPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product_id: productId, quantity: qty }),
+        body: JSON.stringify({ product_id: productId, quantity: delta }),
       });
+
       if (res.ok) {
-        fetchCart();
+        // ताज़ा कार्ट डेटा फ़ेच करें
+        await fetchCart();
+      } else {
+        alert('मात्रा अपडेट करने में समस्या आई।');
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // उत्पाद को कार्ट से पूरी तरह डिलीट करना
+  const handleRemoveItem = async (productId: number) => {
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+
+    setActionLoadingId(productId);
+    try {
+      // पहले चेक करें कि बैकएंड में रिमूव एंडपॉइंट है या नहीं
+      const res = await fetch(`${API_BASE_URL}/api/cart/remove/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ product_id: productId }),
+      });
+
+      if (res.ok) {
+        await fetchCart();
+      } else {
+        // फॉलबैक: यदि बैकएंड में रिमूव रूट अलग हो तो माइनस डेल्टा से शून्य करें
+        const targetItem = items.find((i) => i.product.id === productId);
+        if (targetItem) {
+          await fetch(`${API_BASE_URL}/api/cart/add/`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ product_id: productId, quantity: -targetItem.quantity }),
+          });
+          await fetchCart();
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -100,7 +155,7 @@ export default function CartPage() {
     }
 
     if (!fullName || !phone || !pincode || !address || !city) {
-      alert('कृपया पूरा डिलीवरी पता, शहर, पिनकोड और मोबाइल नंबर भरें।');
+      alert('कृपया पूरा डिलीवरी पता, शहर, पिनकोड और 10 अंकों का मोबाइल नंबर भरें।');
       return;
     }
 
@@ -131,6 +186,7 @@ export default function CartPage() {
     }
   };
 
+  const totalItemsCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = items.reduce(
     (acc, item) => acc + (parseFloat(item.product?.price || '0') * item.quantity),
     0
@@ -155,7 +211,7 @@ export default function CartPage() {
         {loading ? (
           <div className="text-center py-20 text-gray-500 font-bold">कार्ट लोड हो रहा है...</div>
         ) : items.length === 0 ? (
-          <div className="bg-white rounded-2xl p-12 text-center border shadow-xs">
+          <div className="bg-white rounded-2xl p-12 text-center border shadow-xs max-w-md mx-auto">
             <span className="text-5xl block mb-3">🛒</span>
             <h2 className="text-lg font-bold text-gray-800">आपका कार्ट खाली है!</h2>
             <p className="text-xs text-gray-500 mt-1 mb-5">स्टोर से अपने पसंदीदा उत्पाद जोड़ें।</p>
@@ -240,13 +296,15 @@ export default function CartPage() {
                       : `${API_BASE_URL}${item.product.image}`
                     : null;
 
+                  const isBusy = actionLoadingId === item.product?.id;
+
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border">
+                        <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border flex-shrink-0">
                           {img ? (
                             <img src={img} alt={item.product?.title || 'Product'} className="w-full h-full object-contain" />
                           ) : (
@@ -259,19 +317,34 @@ export default function CartPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      {/* Quantity Controls & Delete Button */}
+                      <div className="flex items-center justify-between sm:justify-end gap-4">
+                        <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
+                          <button
+                            onClick={() => changeQuantity(item.product.id, -1, item.quantity)}
+                            disabled={isBusy}
+                            title={item.quantity === 1 ? 'कार्ट से हटाएँ' : 'कम करें'}
+                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                          >
+                            -
+                          </button>
+                          <span className="text-xs font-bold px-2">{isBusy ? '...' : item.quantity}</span>
+                          <button
+                            onClick={() => changeQuantity(item.product.id, 1, item.quantity)}
+                            disabled={isBusy}
+                            title="बढ़ाएँ"
+                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                          >
+                            +
+                          </button>
+                        </div>
+
                         <button
-                          onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
-                          className="w-7 h-7 rounded border bg-gray-100 font-bold hover:bg-gray-200"
+                          onClick={() => handleRemoveItem(item.product.id)}
+                          disabled={isBusy}
+                          className="text-xs text-red-600 hover:text-red-800 font-bold flex items-center gap-1 border border-red-200 hover:border-red-400 px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer"
                         >
-                          -
-                        </button>
-                        <span className="text-xs font-bold px-1">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
-                          className="w-7 h-7 rounded border bg-gray-100 font-bold hover:bg-gray-200"
-                        >
-                          +
+                          🗑️ Remove
                         </button>
                       </div>
                     </div>
@@ -286,8 +359,8 @@ export default function CartPage() {
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
                 <div className="space-y-3 text-xs border-b pb-4">
                   <div className="flex justify-between text-gray-600">
-                    <span>Total Items</span>
-                    <span>{items.reduce((s, i) => s + i.quantity, 0)}</span>
+                    <span>Total Items (संख्या)</span>
+                    <span>{totalItemsCount}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Price</span>
