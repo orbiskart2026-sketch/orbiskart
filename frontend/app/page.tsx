@@ -30,6 +30,8 @@ export default function HomePage() {
   const [sortBy, setSortBy] = useState<string>('newest');
   const [addingId, setAddingId] = useState<number | null>(null);
 
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
@@ -38,7 +40,7 @@ export default function HomePage() {
       if (selectedCategory !== 'all') queryParams.append('category', selectedCategory);
       if (sortBy !== 'newest') queryParams.append('sort', sortBy);
 
-      const res = await fetch(`http://127.0.0.1:8000/api/products/?${queryParams.toString()}`);
+      const res = await fetch(`${apiUrl}/api/products/?${queryParams.toString()}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -77,7 +79,7 @@ export default function HomePage() {
 
     setAddingId(productId);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/cart/add/', {
+      const res = await fetch(`${apiUrl}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,7 +209,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {products.map((item) => {
               const imageUrl = item.image
-                ? (item.image.startsWith('http') ? item.image : `http://127.0.0.1:8000${item.image}`)
+                ? (item.image.startsWith('http') ? item.image : `${apiUrl}${item.image}`)
                 : null;
 
               return (
@@ -216,7 +218,6 @@ export default function HomePage() {
                   className="bg-white border rounded-2xl p-4 shadow-sm hover:shadow-md transition flex flex-col justify-between"
                 >
                   <div>
-                    {/* Clickable Image & Title -> Links to Detail Page */}
                     <Link href={`/products/${item.id}`} className="group block">
                       <div className="w-full h-48 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden relative">
                         {imageUrl ? (
