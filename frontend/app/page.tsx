@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 interface Category {
   id: number;
@@ -21,7 +22,6 @@ interface Product {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
-// Flipkart / Amazon / Ajio स्टाइल सभी कैटेगरीज + Gifts
 const DEFAULT_TOP_CATEGORIES = [
   { key: 'all', name: 'All Store', icon: '🛍️' },
   { key: 'gifts', name: 'Gift Store', icon: '🎁' },
@@ -44,6 +44,7 @@ const DEFAULT_TOP_CATEGORIES = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,15 +55,18 @@ export default function HomePage() {
   const [mobile, setMobile] = useState<string | null>(null);
   const [greeting, setGreeting] = useState('Good Day');
 
-  // Filters & Toggles
+  // Badges & Counters
+  const [cartCount, setCartCount] = useState<number>(0);
+  const [wishlist, setWishlist] = useState<number[]>([]);
+
+  // Filters
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
   const [filterType, setFilterType] = useState<'all' | 'trending' | 'price_drop'>('all');
-  const [wishlist, setWishlist] = useState<number[]>([]);
   const [addingId, setAddingId] = useState<number | null>(null);
 
-  // समय के अनुसार Wishes (Morning / Afternoon / Evening)
+  // समय के अनुसार Wishes व लोकल स्टोरेज डेटा
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour >= 4 && hour < 12) {
@@ -73,7 +77,6 @@ export default function HomePage() {
       setGreeting('Good Evening 🌙');
     }
 
-    // लोकल स्टोरेज से यूज़र डेटा लोड करें
     const storedUser = localStorage.getItem('username');
     const storedEmail = localStorage.getItem('email');
     const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
@@ -89,13 +92,34 @@ export default function HomePage() {
         setWishlist([]);
       }
     }
+
+    // कार्ट काउंट लोड करें
+    fetchCartCount();
   }, []);
+
+  const fetchCartCount = async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/cart/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const totalItems = data.items ? data.items.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0;
+        setCartCount(totalItems);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleLogout = () => {
     localStorage.clear();
     setUser(null);
     setEmail(null);
     setMobile(null);
+    setCartCount(0);
     window.location.reload();
   };
 
@@ -129,7 +153,6 @@ export default function HomePage() {
           fetched = data;
         }
 
-        // Trending या Price Drop फ़िल्टर क्लाइंट-साइड अप्लाई करें
         if (filterType === 'price_drop') {
           fetched = fetched.filter(
             (p) => p.original_price && parseFloat(p.original_price) > parseFloat(p.price)
@@ -152,10 +175,11 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [search, selectedCategory, sortBy, filterType]);
 
-  const handleAddToCart = async (productId: number) => {
+  const handleAddToCart = async (productId: number, redirectToCart = false) => {
     const token = localStorage.getItem('access_token');
     if (!token) {
       alert('कृपया पहले लॉगिन करें।');
+      router.push('/login');
       return;
     }
 
@@ -171,7 +195,12 @@ export default function HomePage() {
       });
 
       if (res.ok) {
-        alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
+        setCartCount((prev) => prev + 1);
+        if (redirectToCart) {
+          router.push('/cart');
+        } else {
+          alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
+        }
       } else {
         alert('कार्ट में जोड़ने में विफल।');
       }
@@ -184,7 +213,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Top Navbar */}
+      {/* Top Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-18 flex items-center justify-between gap-4">
           <Link href="/" className="text-2xl font-black text-blue-600 flex-shrink-0 tracking-tight">
@@ -249,16 +278,23 @@ export default function HomePage() {
             <Link href="/orders" className="text-sm font-semibold text-gray-700 hover:text-blue-600">
               My Orders
             </Link>
+
+            {/* Cart with Live Badge */}
             <Link
               href="/cart"
-              className="text-sm font-bold bg-blue-600 text-white px-3.5 py-1.5 rounded-lg hover:bg-blue-700 shadow-sm transition"
+              className="relative flex items-center gap-1.5 text-sm font-bold bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 shadow-sm transition"
             >
-              🛒 Cart
+              <span>🛒 Cart</span>
+              {cartCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[11px] font-black rounded-full h-5 w-5 flex items-center justify-center border-2 border-white shadow-xs">
+                  {cartCount}
+                </span>
+              )}
             </Link>
           </div>
         </div>
 
-        {/* Categories Bar (Flipkart / Amazon / Ajio Style) */}
+        {/* Categories Bar */}
         <div className="bg-white border-t border-gray-100 shadow-xs">
           <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-4">
             <div className="flex items-center space-x-5 overflow-x-auto no-scrollbar py-1">
@@ -290,7 +326,6 @@ export default function HomePage() {
                 );
               })}
 
-              {/* Dynamic categories from backend */}
               {categories.map((cat) => {
                 const isActive = selectedCategory === cat.id.toString();
                 return (
@@ -336,7 +371,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Trending & Price Drop Special Strip */}
+        {/* Quick Filters */}
         <div className="bg-slate-50 border-t border-b border-gray-200 px-4 py-2">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-2">
@@ -380,7 +415,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main Catalog Grid */}
+      {/* Product Catalog */}
       <main className="max-w-7xl mx-auto px-4 pt-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-800">
@@ -431,7 +466,7 @@ export default function HomePage() {
                   key={product.id}
                   className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative group"
                 >
-                  {/* Like / Wishlist Button */}
+                  {/* Wishlist Button */}
                   <button
                     onClick={() => toggleWishlist(product.id)}
                     title={isFav ? 'Remove from Wishlist' : 'Add to Wishlist'}
@@ -450,7 +485,6 @@ export default function HomePage() {
                         <span className="text-xs text-gray-400 font-bold">No Image</span>
                       )}
 
-                      {/* Badges */}
                       <div className="absolute top-2 left-2 flex flex-col gap-1">
                         {product.category_name && (
                           <span className="bg-white/95 text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700">
@@ -477,13 +511,24 @@ export default function HomePage() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleAddToCart(product.id)}
-                      disabled={addingId === product.id}
-                      className="w-full bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xs py-2 rounded-lg transition disabled:bg-gray-200 shadow-xs cursor-pointer"
-                    >
-                      {addingId === product.id ? 'Adding...' : 'Add to Cart 🛒'}
-                    </button>
+                    {/* Add to Cart & Buy Now Buttons */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleAddToCart(product.id, false)}
+                        disabled={addingId === product.id}
+                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xs py-2 rounded-lg transition disabled:bg-gray-200 shadow-xs cursor-pointer"
+                      >
+                        {addingId === product.id ? '...' : 'Add to Cart 🛒'}
+                      </button>
+
+                      <button
+                        onClick={() => handleAddToCart(product.id, true)}
+                        disabled={addingId === product.id}
+                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2 rounded-lg transition disabled:bg-gray-200 shadow-xs cursor-pointer"
+                      >
+                        ⚡ Buy Now
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
