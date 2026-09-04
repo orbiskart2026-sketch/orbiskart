@@ -120,7 +120,10 @@ export default function HomePage() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('username');
+    localStorage.removeItem('mobile');
+    localStorage.removeItem('email');
     setUser(null);
     setEmail(null);
     setMobile(null);
