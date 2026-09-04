@@ -155,8 +155,32 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-CORS_ALLOW_ALL_ORIGINS = True
-import os
+# --- CORS & CSRF Configuration ---
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "https://orbiskart.com",
+    "https://www.orbiskart.com",
+    "http://localhost:3000",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://orbiskart.com",
+    "https://www.orbiskart.com",
+    "https://orbiskart.onrender.com",
+]
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
