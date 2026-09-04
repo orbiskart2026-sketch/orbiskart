@@ -21,6 +21,7 @@ interface Order {
   total_price: string;
   status: string;
   shipping_address: string;
+  payment_method?: string;
   items: OrderItem[];
 }
 
@@ -39,19 +40,33 @@ export default function OrdersPage() {
     }
 
     setLoading(true);
+    let serverOrders: Order[] = [];
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/orders/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setOrders(Array.isArray(data) ? data : data.orders || []);
+        serverOrders = Array.isArray(data) ? data : data.orders || [];
       }
     } catch (err) {
-      console.error('Failed to fetch orders', err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch from server', err);
     }
+
+    // लोकल स्टोरेज बैकअप से मिलाएँ
+    const localOrders: Order[] = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
+    
+    // दोनों सूचियों को आईडी के आधार पर मर्ज करें
+    const combinedMap = new Map<number, Order>();
+    [...serverOrders, ...localOrders].forEach((ord) => {
+      if (!combinedMap.has(ord.id)) {
+        combinedMap.set(ord.id, ord);
+      }
+    });
+
+    setOrders(Array.from(combinedMap.values()));
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -79,11 +94,11 @@ export default function OrdersPage() {
       <main className="max-w-5xl mx-auto px-4 pt-8">
         <div className="mb-6">
           <h1 className="text-2xl font-black text-gray-900">My Orders & Invoices</h1>
-          <p className="text-xs text-gray-500 mt-1">Track orders and download official GST tax invoices</p>
+          <p className="text-xs text-gray-500 mt-1">Track orders and download invoices</p>
         </div>
 
         {loading ? (
-          <div className="text-center py-20 text-gray-500 font-bold">लोड हो रहा है...</div>
+          <div className="text-center py-20 text-gray-500 font-bold">ऑर्डर लोड हो रहे हैं...</div>
         ) : orders.length === 0 ? (
           <div className="bg-white border rounded-2xl p-16 text-center shadow-xs">
             <span className="text-4xl block mb-3">📦</span>
@@ -111,15 +126,22 @@ export default function OrdersPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="bg-blue-100 text-blue-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase">
+                    <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase">
                       {order.status || 'Confirmed'}
                     </span>
                     <span className="text-xs font-black text-gray-900 ml-2">Total: ₹{order.total_price}</span>
                   </div>
                 </div>
 
-                <div className="text-xs text-gray-600 mb-3 bg-gray-50 p-2.5 rounded-lg">
-                  <span className="font-bold text-gray-700">Delivery Address:</span> {order.shipping_address}
+                <div className="text-xs text-gray-600 mb-3 bg-gray-50 p-2.5 rounded-lg space-y-1">
+                  <div>
+                    <span className="font-bold text-gray-700">Delivery Address:</span> {order.shipping_address}
+                  </div>
+                  {order.payment_method && (
+                    <div>
+                      <span className="font-bold text-gray-700">Payment:</span> {order.payment_method}
+                    </div>
+                  )}
                 </div>
 
                 <div className="divide-y">

@@ -34,6 +34,10 @@ export default function CartPage() {
   const [stateName, setStateName] = useState('');
   const [pincode, setPincode] = useState('');
 
+  // Payment Selection
+  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'COD'>('UPI');
+  const [upiId, setUpiId] = useState('');
+
   const fetchCart = async () => {
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -66,7 +70,6 @@ export default function CartPage() {
   useEffect(() => {
     fetchCart();
 
-    // सेव किया हुआ एड्रेस ऑटो-लोड करें
     const savedAddress = localStorage.getItem('user_shipping_address');
     if (savedAddress) {
       try {
@@ -167,7 +170,11 @@ export default function CartPage() {
       return;
     }
 
-    // एड्रेस लोकल स्टोरेज में हमेशा के लिए सेव करें
+    if (paymentMethod === 'UPI' && !upiId.trim()) {
+      alert('कृपया अपनी UPI ID (उदा: mobile@upi) दर्ज करें।');
+      return;
+    }
+
     const fullAddressObj = {
       fullName,
       phone,
@@ -192,16 +199,36 @@ export default function CartPage() {
         },
         body: JSON.stringify({
           shipping_address: formattedShippingAddress,
-          payment_method: 'COD',
+          payment_method: paymentMethod,
+          payment_details: paymentMethod === 'UPI' ? upiId : paymentMethod,
         }),
       });
 
       if (res.ok) {
+        const orderData = await res.json();
+        // बैकएंड सिंक के साथ लोकल बैकअप बनाएँ ताकि पेज तुरंत ऑर्डर दिखाए
+        const existingLocalOrders = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
+        const newRecord = {
+          id: orderData.id || Date.now(),
+          created_at: new Date().toISOString(),
+          total_price: subtotal.toFixed(2),
+          status: paymentMethod === 'COD' ? 'Confirmed (COD)' : 'Paid Online',
+          shipping_address: formattedShippingAddress,
+          payment_method: paymentMethod,
+          items: items.map((i) => ({
+            id: i.id,
+            product_title: i.product?.title,
+            price: i.product?.price,
+            quantity: i.quantity,
+          })),
+        };
+        localStorage.setItem('user_local_orders', JSON.stringify([newRecord, ...existingLocalOrders]));
+
         alert('ऑर्डर सफलतापूर्वक दर्ज किया गया! 🎉');
         router.push('/orders');
       } else {
         const errorData = await res.json().catch(() => null);
-        alert(errorData?.error || 'ऑर्डर पूरा करने में समस्या आई। कृपया पुनः प्रयास करें।');
+        alert(errorData?.error || 'ऑर्डर पूरा करने में समस्या आई।');
       }
     } catch (err) {
       console.error(err);
@@ -231,7 +258,7 @@ export default function CartPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6">
-        <h1 className="text-xl font-black mb-6">Shopping Cart & Delivery</h1>
+        <h1 className="text-xl font-black mb-6">Shopping Cart, Address & Payment</h1>
 
         {loading ? (
           <div className="text-center py-20 text-gray-500 font-bold">कार्ट लोड हो रहा है...</div>
@@ -250,11 +277,11 @@ export default function CartPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {/* Detailed Delivery Address Form */}
+              {/* Delivery Address Form */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <div className="flex items-center justify-between mb-4 border-b pb-2">
                   <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider flex items-center gap-2">
-                    <span>📍</span> Delivery Address (डिलीवरी का पूरा पता)
+                    <span>📍</span> 1. Delivery Address (शिपिंग का पूरा पता)
                   </h2>
                   <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Auto-Saved</span>
                 </div>
@@ -284,7 +311,7 @@ export default function CartPage() {
                   </div>
 
                   <div className="sm:col-span-2">
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Flat / House No. / Village / Landmark (गली / मकान / गाँव / लैंडमार्क) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Flat / House No. / Village / Landmark *</label>
                     <input
                       type="text"
                       placeholder="e.g. Near Shiv Mandir, Main Road"
@@ -355,10 +382,82 @@ export default function CartPage() {
                 </div>
               </div>
 
+              {/* Payment Options Selection */}
+              <div className="bg-white p-5 rounded-2xl border shadow-xs">
+                <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2 border-b pb-2">
+                  <span>💳</span> 2. Select Payment Option (भुगतान का तरीका)
+                </h2>
+
+                <div className="space-y-3">
+                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'UPI' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === 'UPI'}
+                        onChange={() => setPaymentMethod('UPI')}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">UPI (PhonePe, Google Pay, Paytm, BHIM)</span>
+                        <span className="text-[10px] text-gray-500">Fast & Secure UPI payment</span>
+                      </div>
+                    </div>
+                    <span className="text-base">⚡</span>
+                  </label>
+
+                  {paymentMethod === 'UPI' && (
+                    <div className="pl-7 pr-2 pb-1">
+                      <input
+                        type="text"
+                        placeholder="Enter UPI ID (e.g. mobile@upi / yourname@okaxis)"
+                        value={upiId}
+                        onChange={(e) => setUpiId(e.target.value)}
+                        className="w-full text-xs p-2.5 border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+
+                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'CARD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === 'CARD'}
+                        onChange={() => setPaymentMethod('CARD')}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">Credit / Debit / ATM Card</span>
+                        <span className="text-[10px] text-gray-500">Visa, MasterCard, RuPay</span>
+                      </div>
+                    </div>
+                    <span className="text-base">💳</span>
+                  </label>
+
+                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'COD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === 'COD'}
+                        onChange={() => setPaymentMethod('COD')}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">Cash on Delivery (COD)</span>
+                        <span className="text-[10px] text-gray-500">Pay cash upon delivery</span>
+                      </div>
+                    </div>
+                    <span className="text-base">💵</span>
+                  </label>
+                </div>
+              </div>
+
               {/* Cart Items List */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span>🛍️</span> Cart Items ({items.length} Product{items.length > 1 ? 's' : ''})
+                  <span>🛍️</span> 3. Review Items ({items.length} Product{items.length > 1 ? 's' : ''})
                 </h2>
                 {items.map((item) => {
                   const img = item.product?.image
@@ -393,7 +492,6 @@ export default function CartPage() {
                           <button
                             onClick={() => changeQuantity(item.product.id, -1, item.quantity)}
                             disabled={isBusy}
-                            title="संख्या घटाएँ"
                             className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
                           >
                             -
@@ -404,7 +502,6 @@ export default function CartPage() {
                           <button
                             onClick={() => changeQuantity(item.product.id, 1, item.quantity)}
                             disabled={isBusy}
-                            title="संख्या बढ़ाएँ"
                             className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
                           >
                             +
@@ -425,7 +522,7 @@ export default function CartPage() {
               </div>
             </div>
 
-            {/* Price Details */}
+            {/* Price Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
@@ -442,6 +539,10 @@ export default function CartPage() {
                     <span>Delivery Charges</span>
                     <span className="text-emerald-600 font-bold">FREE</span>
                   </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Payment Mode</span>
+                    <span className="font-bold text-blue-600">{paymentMethod}</span>
+                  </div>
                 </div>
 
                 <div className="flex justify-between font-black text-sm pt-4 mb-5">
@@ -454,7 +555,7 @@ export default function CartPage() {
                   disabled={submitting}
                   className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
                 >
-                  {submitting ? 'Placing Order...' : 'Place Order ⚡ (COD)'}
+                  {submitting ? 'Processing Order...' : `Pay & Place Order ⚡ (₹${subtotal.toFixed(2)})`}
                 </button>
               </div>
             </div>
