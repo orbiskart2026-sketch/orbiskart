@@ -24,13 +24,15 @@ export default function CartPage() {
   const [submitting, setSubmitting] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
-  // Delivery Address Form
+  // Delivery Address Fields
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [pincode, setPincode] = useState('');
-  const [address, setAddress] = useState('');
+  const [streetAddress, setStreetAddress] = useState('');
+  const [postOffice, setPostOffice] = useState('');
   const [city, setCity] = useState('');
+  const [district, setDistrict] = useState('');
   const [stateName, setStateName] = useState('');
+  const [pincode, setPincode] = useState('');
 
   const fetchCart = async () => {
     const token = localStorage.getItem('access_token');
@@ -63,18 +65,35 @@ export default function CartPage() {
 
   useEffect(() => {
     fetchCart();
-    const storedUser = localStorage.getItem('username');
-    const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
-    if (storedUser) setFullName(storedUser);
-    if (storedMobile) setPhone(storedMobile);
+
+    // सेव किया हुआ एड्रेस ऑटो-लोड करें
+    const savedAddress = localStorage.getItem('user_shipping_address');
+    if (savedAddress) {
+      try {
+        const addr = JSON.parse(savedAddress);
+        setFullName(addr.fullName || '');
+        setPhone(addr.phone || '');
+        setStreetAddress(addr.streetAddress || '');
+        setPostOffice(addr.postOffice || '');
+        setCity(addr.city || '');
+        setDistrict(addr.district || '');
+        setStateName(addr.stateName || '');
+        setPincode(addr.pincode || '');
+      } catch {
+        // ignore
+      }
+    } else {
+      const storedUser = localStorage.getItem('username');
+      const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
+      if (storedUser) setFullName(storedUser);
+      if (storedMobile) setPhone(storedMobile);
+    }
   }, []);
 
-  // मात्रा बढ़ाना या घटाना
   const changeQuantity = async (productId: number, delta: number, currentQty: number) => {
     const token = localStorage.getItem('access_token');
     if (!token) return;
 
-    // अगर मात्रा 1 है और माइनस दबाया तो आइटम हटा दें
     if (currentQty <= 1 && delta === -1) {
       handleRemoveItem(productId);
       return;
@@ -82,20 +101,17 @@ export default function CartPage() {
 
     setActionLoadingId(productId);
     try {
-      // 1. कोशिश करें कि बैकएंड पर update/ या add/ से रिक्वेस्ट भेजी जाए
       const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product_id: productId, quantity: delta, action: delta < 0 ? 'decrease' : 'increase' }),
+        body: JSON.stringify({ product_id: productId, quantity: delta }),
       });
 
       if (res.ok) {
         await fetchCart();
-      } else {
-        alert('मात्रा अपडेट करने में समस्या आई।');
       }
     } catch (err) {
       console.error(err);
@@ -104,14 +120,12 @@ export default function CartPage() {
     }
   };
 
-  // कार्ट से प्रोडक्ट पूरी तरह हटाना (Remove / Delete)
   const handleRemoveItem = async (productId: number) => {
     const token = localStorage.getItem('access_token');
     if (!token) return;
 
     setActionLoadingId(productId);
     try {
-      // कई Django बैकएंड में /api/cart/remove/ या /api/cart/delete/ होता है
       let res = await fetch(`${API_BASE_URL}/api/cart/remove/`, {
         method: 'POST',
         headers: {
@@ -122,7 +136,6 @@ export default function CartPage() {
       });
 
       if (!res.ok) {
-        // अगर remove/ नहीं है, तो delete/ ट्राई करें
         res = await fetch(`${API_BASE_URL}/api/cart/delete/`, {
           method: 'POST',
           headers: {
@@ -132,7 +145,6 @@ export default function CartPage() {
           body: JSON.stringify({ product_id: productId }),
         });
       }
-
       await fetchCart();
     } catch (err) {
       console.error(err);
@@ -150,10 +162,25 @@ export default function CartPage() {
       return;
     }
 
-    if (!fullName || !phone || !pincode || !address || !city) {
-      alert('कृपया पूरा डिलीवरी पता, शहर, पिनकोड और 10 अंकों का मोबाइल नंबर भरें।');
+    if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
+      alert('कृपया नाम, मोबाइल, पता, ज़िला, राज्य और पिनकोड भरें।');
       return;
     }
+
+    // एड्रेस लोकल स्टोरेज में हमेशा के लिए सेव करें
+    const fullAddressObj = {
+      fullName,
+      phone,
+      streetAddress,
+      postOffice,
+      city,
+      district,
+      stateName,
+      pincode,
+    };
+    localStorage.setItem('user_shipping_address', JSON.stringify(fullAddressObj));
+
+    const formattedShippingAddress = `${fullName}, Mob: ${phone}, ${streetAddress}, PO: ${postOffice || 'N/A'}, City: ${city || district}, Dist: ${district}, State: ${stateName} - ${pincode}`;
 
     setSubmitting(true);
     try {
@@ -164,7 +191,7 @@ export default function CartPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          shipping_address: `${fullName}, ${address}, ${city}, ${stateName} - ${pincode}, Phone: ${phone}`,
+          shipping_address: formattedShippingAddress,
           payment_method: 'COD',
         }),
       });
@@ -173,10 +200,12 @@ export default function CartPage() {
         alert('ऑर्डर सफलतापूर्वक दर्ज किया गया! 🎉');
         router.push('/orders');
       } else {
-        alert('ऑर्डर पूरा करने में समस्या आई। कृपया पुनः प्रयास करें।');
+        const errorData = await res.json().catch(() => null);
+        alert(errorData?.error || 'ऑर्डर पूरा करने में समस्या आई। कृपया पुनः प्रयास करें।');
       }
     } catch (err) {
       console.error(err);
+      alert('सर्वर से संपर्क नहीं हो सका।');
     } finally {
       setSubmitting(false);
     }
@@ -184,7 +213,7 @@ export default function CartPage() {
 
   const totalItemsCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = items.reduce(
-    (acc, item) => acc + (parseFloat(item.product?.price || '0') * item.quantity),
+    (acc, item) => acc + parseFloat(item.product?.price || '0') * item.quantity,
     0
   );
 
@@ -221,66 +250,112 @@ export default function CartPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {/* Shipping Address Form */}
+              {/* Detailed Delivery Address Form */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
-                <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <span>📍</span> Delivery Address (शिपिंग का पता)
-                </h2>
+                <div className="flex items-center justify-between mb-4 border-b pb-2">
+                  <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider flex items-center gap-2">
+                    <span>📍</span> Delivery Address (डिलीवरी का पूरा पता)
+                  </h2>
+                  <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Auto-Saved</span>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Full Name (नाम)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Full Name (पूरा नाम) *</label>
                     <input
                       type="text"
                       placeholder="Receiver's name"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Mobile Number (मोबाइल)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Mobile Number (मोबाइल नंबर) *</label>
                     <input
                       type="text"
-                      placeholder="10-digit number"
+                      placeholder="10-digit mobile number"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
                     />
                   </div>
+
                   <div className="sm:col-span-2">
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Street Address / House No / Landmark (मकान / गली / लैंडमार्क)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Flat / House No. / Village / Landmark (गली / मकान / गाँव / लैंडमार्क) *</label>
                     <input
                       type="text"
-                      placeholder="Near chowk, main road..."
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="e.g. Near Shiv Mandir, Main Road"
+                      value={streetAddress}
+                      onChange={(e) => setStreetAddress(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Post Office (डाकघर)</label>
+                    <input
+                      type="text"
+                      placeholder="Post Office name"
+                      value={postOffice}
+                      onChange={(e) => setPostOffice(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
+
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">City / Town (शहर)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">City / Town (शहर)</label>
                     <input
                       type="text"
-                      placeholder="City"
+                      placeholder="City or Town"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
+
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Pincode (पिन कोड)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">District (ज़िला) *</label>
+                    <input
+                      type="text"
+                      placeholder="District"
+                      value={district}
+                      onChange={(e) => setDistrict(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">State (राज्य) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Jharkhand, Bihar, UP..."
+                      value={stateName}
+                      onChange={(e) => setStateName(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Pincode (पिन कोड) *</label>
                     <input
                       type="text"
                       placeholder="6-digit pincode"
                       value={pincode}
                       onChange={(e) => setPincode(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Cart Items List with Visible Remove Button */}
+              {/* Cart Items List */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🛍️</span> Cart Items ({items.length} Product{items.length > 1 ? 's' : ''})
@@ -313,7 +388,6 @@ export default function CartPage() {
                         </div>
                       </div>
 
-                      {/* Quantity Controls & Clear Remove Button */}
                       <div className="flex items-center justify-between sm:justify-end gap-3">
                         <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
                           <button
@@ -337,7 +411,6 @@ export default function CartPage() {
                           </button>
                         </div>
 
-                        {/* Direct Delete / Remove Button */}
                         <button
                           onClick={() => handleRemoveItem(item.product.id)}
                           disabled={isBusy}
