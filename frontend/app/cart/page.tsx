@@ -23,7 +23,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // शिपिंग एड्रेस स्टेट्स
+  // Delivery Address Form
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [pincode, setPincode] = useState('');
@@ -45,7 +45,14 @@ export default function CartPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items || []);
+        // अगर डेटा ऐरे है या data.items है
+        if (Array.isArray(data)) {
+          setItems(data);
+        } else if (data.items) {
+          setItems(data.items);
+        } else {
+          setItems([]);
+        }
       }
     } catch (err) {
       console.error('Error fetching cart:', err);
@@ -93,7 +100,7 @@ export default function CartPage() {
     }
 
     if (!fullName || !phone || !pincode || !address || !city) {
-      alert('कृपया पूरा डिलीवरी पता और मोबाइल नंबर भरें।');
+      alert('कृपया पूरा डिलीवरी पता, शहर, पिनकोड और मोबाइल नंबर भरें।');
       return;
     }
 
@@ -106,7 +113,7 @@ export default function CartPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          shipping_address: `${fullName}, ${address}, ${city}, ${stateName} - ${pincode}, Mob: ${phone}`,
+          shipping_address: `${fullName}, ${address}, ${city}, ${stateName} - ${pincode}, Phone: ${phone}`,
           payment_method: 'COD',
         }),
       });
@@ -125,13 +132,12 @@ export default function CartPage() {
   };
 
   const subtotal = items.reduce(
-    (acc, item) => acc + parseFloat(item.product.price) * item.quantity,
+    (acc, item) => acc + (parseFloat(item.product?.price || '0') * item.quantity),
     0
   );
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
@@ -144,7 +150,7 @@ export default function CartPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6">
-        <h1 className="text-xl font-black mb-6">Shopping Cart & Checkout</h1>
+        <h1 className="text-xl font-black mb-6">Shopping Cart & Delivery</h1>
 
         {loading ? (
           <div className="text-center py-20 text-gray-500 font-bold">कार्ट लोड हो रहा है...</div>
@@ -162,79 +168,73 @@ export default function CartPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* बायाँ कॉलम: कार्ट प्रोडक्ट्स और डिलीवरी एड्रेस */}
             <div className="lg:col-span-2 space-y-6">
-              {/* डिलीवरी एड्रेस फॉर्म */}
+              {/* Shipping Address Form */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <span>📍</span> Delivery Address
+                  <span>📍</span> Delivery Address (शिपिंग का पता)
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Full Name</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Full Name (नाम)</label>
                     <input
                       type="text"
                       placeholder="Receiver's name"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      required
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Mobile Number</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Mobile Number (मोबाइल)</label>
                     <input
                       type="text"
                       placeholder="10-digit number"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      required
                     />
                   </div>
                   <div className="sm:col-span-2">
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Street Address / House No / Landmark</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Street Address / House No / Landmark (मकान / गली / लैंडमार्क)</label>
                     <input
                       type="text"
-                      placeholder="Near temple, main road..."
+                      placeholder="Near chowk, main road..."
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      required
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">City / Town</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">City / Town (शहर)</label>
                     <input
                       type="text"
                       placeholder="City"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      required
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Pincode</label>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Pincode (पिन कोड)</label>
                     <input
                       type="text"
                       placeholder="6-digit pincode"
                       value={pincode}
                       onChange={(e) => setPincode(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      required
                     />
                   </div>
                 </div>
               </div>
 
-              {/* कार्ट आइटम्स लिस्ट */}
+              {/* Cart Items List */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🛍️</span> Cart Items ({items.length})
                 </h2>
                 {items.map((item) => {
-                  const img = item.product.image
+                  const img = item.product?.image
                     ? item.product.image.startsWith('http')
                       ? item.product.image
                       : `${API_BASE_URL}${item.product.image}`
@@ -248,18 +248,17 @@ export default function CartPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border">
                           {img ? (
-                            <img src={img} alt={item.product.title} className="w-full h-full object-contain" />
+                            <img src={img} alt={item.product?.title || 'Product'} className="w-full h-full object-contain" />
                           ) : (
                             <span className="text-[10px] text-gray-400">No Img</span>
                           )}
                         </div>
                         <div>
-                          <h3 className="text-xs font-bold text-gray-800 line-clamp-1">{item.product.title}</h3>
-                          <span className="text-xs font-black text-gray-900 block mt-1">₹{item.product.price}</span>
+                          <h3 className="text-xs font-bold text-gray-800 line-clamp-1">{item.product?.title}</h3>
+                          <span className="text-xs font-black text-gray-900 block mt-1">₹{item.product?.price}</span>
                         </div>
                       </div>
 
-                      {/* मात्रा बटन */}
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
@@ -281,7 +280,7 @@ export default function CartPage() {
               </div>
             </div>
 
-            {/* दायाँ कॉलम: प्राइस समरी */}
+            {/* Price Details */}
             <div className="lg:col-span-1">
               <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
@@ -310,7 +309,7 @@ export default function CartPage() {
                   disabled={submitting}
                   className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
                 >
-                  {submitting ? 'Placing Order...' : 'Place Order ⚡'}
+                  {submitting ? 'Placing Order...' : 'Place Order ⚡ (COD)'}
                 </button>
               </div>
             </div>
