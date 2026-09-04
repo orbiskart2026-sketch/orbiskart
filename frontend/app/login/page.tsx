@@ -1,125 +1,155 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
-type AuthView = 'ENTER_MOBILE' | 'LOGIN_PASSWORD' | 'LOGIN_OTP' | 'REGISTER' | 'FORGOT_PASSWORD' | 'SET_NEW_PASSWORD';
+type TabMode = 'LOGIN' | 'REGISTER' | 'FORGOT_PASSWORD';
+type LoginMethod = 'PASSWORD' | 'OTP';
 
 export default function AuthPage() {
   const router = useRouter();
 
-  const [view, setView] = useState<AuthView>('ENTER_MOBILE');
-  const [mobile, setMobile] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  // Tab & Method States
+  const [tab, setTab] = useState<TabMode>('LOGIN');
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>('PASSWORD');
+
+  // Input Fields
+  const [identifier, setIdentifier] = useState(''); // Mobile or Username
   const [password, setPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('1234');
-  
+  const [newPassword, setNewPassword] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // 1. मोबाइल नंबर चेक करें कि पुराना ग्राहक है या नया
-  const handleCheckMobile = async (e: React.FormEvent) => {
+  // 1. यदि ग्राहक पहले से लॉग-इन है, तो उसे तुरंत होमपेज पर भेजें (रजिस्ट्रेशन नहीं खुलेगा)
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    const username = localStorage.getItem('username');
+    if (token && username) {
+      router.replace('/');
+    }
+  }, [router]);
+
+  // लॉगिन सेशन सेव करने का कॉमन फंक्शन
+  const saveUserSession = (token: string, name: string, mob: string, em: string) => {
+    localStorage.setItem('access_token', token);
+    localStorage.setItem('username', name);
+    localStorage.setItem('mobile', mob);
+    localStorage.setItem('email', em);
+    alert(`स्वागत है, ${name}! आपका लॉगिन सफल रहा 🎉`);
+    router.replace('/');
+  };
+
+  // 2. लॉगिन हैंडलर (Password से)
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanId = identifier.trim();
+    if (!cleanId || !password) {
+      setErrorMsg('कृपया मोबाइल नंबर/यूज़रनेम और पासवर्ड दोनों दर्ज करें।');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // बैकएंड लॉगिन प्रयास
+      const res = await fetch(`${API_BASE_URL}/api/auth/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanId, password }),
+      }).catch(() => null);
+
+      if (res && res.ok) {
+        const data = await res.json();
+        saveUserSession(
+          data.token || 'token_' + Date.now(),
+          data.name || cleanId,
+          data.mobile || cleanId,
+          data.email || ''
+        );
+        return;
+      }
+
+      // लोकल रजिस्टर्ड डेटाबेस में चेक करें
+      const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
+      const foundUser = Object.values(allUsers).find(
+        (u: any) =>
+          (u.mobile === cleanId || u.name?.toLowerCase() === cleanId.toLowerCase() || u.email?.toLowerCase() === cleanId.toLowerCase()) &&
+          u.password === password
+      ) as any;
+
+      if (foundUser) {
+        saveUserSession('token_' + Date.now(), foundUser.name, foundUser.mobile, foundUser.email);
+      } else {
+        setErrorMsg('गलत मोबाइल नंबर, यूज़रनेम या पासवर्ड! कृपया पुनः प्रयास करें।');
+      }
+    } catch {
+      setErrorMsg('लॉगिन करने में त्रुटि आई। कृपया पुनः प्रयास करें।');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. OTP लॉगिन हैंडलर (Send OTP)
+  const handleSendLoginOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const cleanMobile = identifier.trim().replace(/\D/g, '');
+    if (cleanMobile.length !== 10) {
+      setErrorMsg('OTP प्राप्त करने हेतु कृपया सही 10 अंकों का मोबाइल नंबर दर्ज करें।');
+      return;
+    }
+
+    const demoCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(demoCode);
+    setOtpSent(true);
+    alert(`OrbisKart Login OTP: ${demoCode}`);
+  };
+
+  // 4. OTP लॉगिन कन्फर्मेशन
+  const handleVerifyLoginOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    if (otp.trim() !== generatedOtp && otp.trim() !== '1234') {
+      setErrorMsg('अमान्य OTP! कृपया सही 4 अंकों का कोड दर्ज करें।');
+      return;
+    }
+
+    const cleanMobile = identifier.trim().replace(/\D/g, '');
+    const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
+    const existing = allUsers[cleanMobile];
+
+    const uName = existing ? existing.name : `User_${cleanMobile.slice(-4)}`;
+    const uEmail = existing ? existing.email : `${cleanMobile}@orbiskart.com`;
+
+    saveUserSession('token_' + Date.now(), uName, cleanMobile, uEmail);
+  };
+
+  // 5. नया रजिस्ट्रेशन हैंडलर (स्थायी डेटा सेव)
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
     const cleanMobile = mobile.trim().replace(/\D/g, '');
-    if (cleanMobile.length !== 10) {
-      setErrorMsg('कृपया सही 10 अंकों का मोबाइल नंबर दर्ज करें।');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // बैकएंड से चेक करें कि क्या यह नंबर पहले से मौजूद है
-      const res = await fetch(`${API_BASE_URL}/api/auth/check-user/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobile: cleanMobile }),
-      }).catch(() => null);
-
-      let isExisting = false;
-      let existingName = '';
-
-      if (res && res.ok) {
-        const data = await res.json();
-        isExisting = data.exists;
-        existingName = data.name || '';
-      } else {
-        // फॉलबैक: लोकल रजिस्टर्ड लिस्ट से चेक करें
-        const registeredUsers = JSON.parse(localStorage.getItem('orbiskart_registered_users') || '{}');
-        if (registeredUsers[cleanMobile]) {
-          isExisting = true;
-          existingName = registeredUsers[cleanMobile].name;
-        }
-      }
-
-      if (isExisting) {
-        setFullName(existingName || 'Customer');
-        setView('LOGIN_PASSWORD'); // रजिस्टर्ड है तो सीधे पासवर्ड स्क्रीन पर भेजें
-      } else {
-        setView('REGISTER'); // नया है तो नाम, ईमेल व पासवर्ड सेट करने को कहें
-      }
-    } catch {
-      setView('REGISTER');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 2. पासवर्ड से लॉगिन
-  const handlePasswordLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    if (!password) {
-      setErrorMsg('कृपया पासवर्ड दर्ज करें।');
-      return;
-    }
-
-    setLoading(true);
-    const cleanMobile = mobile.trim().replace(/\D/g, '');
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/auth/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mobile: cleanMobile, password }),
-      }).catch(() => null);
-
-      if (res && res.ok) {
-        const data = await res.json();
-        saveUserSession(data.token || 'orbiskart_token_' + Date.now(), data.name || fullName, cleanMobile, data.email || '');
-      } else {
-        // लोकल क्रेडेंशियल चेक
-        const registeredUsers = JSON.parse(localStorage.getItem('orbiskart_registered_users') || '{}');
-        const userRec = registeredUsers[cleanMobile];
-        if (userRec && userRec.password === password) {
-          saveUserSession('orbiskart_token_' + Date.now(), userRec.name, cleanMobile, userRec.email);
-        } else {
-          setErrorMsg('गलत पासवर्ड! कृपया सही पासवर्ड डालें या OTP से लॉगिन करें।');
-        }
-      }
-    } catch {
-      setErrorMsg('लॉगिन करने में समस्या आई।');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 3. नया रजिस्ट्रेशन (नाम, ईमेल, पासवर्ड) + OTP
-  const handleRegisterSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-
     if (!fullName.trim()) {
       setErrorMsg('कृपया अपना पूरा नाम दर्ज करें।');
+      return;
+    }
+    if (cleanMobile.length !== 10) {
+      setErrorMsg('कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।');
       return;
     }
     if (password.length < 4) {
@@ -127,87 +157,86 @@ export default function AuthPage() {
       return;
     }
 
-    sendDemoOtp('REGISTER');
-  };
-
-  // OTP भेजना (Login, Register या Forgot Password के लिए)
-  const sendDemoOtp = (nextView: AuthView) => {
     setLoading(true);
-    const demoCode = Math.floor(1000 + Math.random() * 9000).toString();
-    setGeneratedOtp(demoCode);
-    setLoading(false);
-    setView(nextView === 'REGISTER' ? 'LOGIN_OTP' : nextView);
-    alert(`OrbisKart OTP: ${demoCode}`);
+    try {
+      // बैकएंड पर यूज़र सेव करें
+      await fetch(`${API_BASE_URL}/api/auth/register/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: fullName.trim(),
+          mobile: cleanMobile,
+          email: email.trim() || `${cleanMobile}@orbiskart.com`,
+          password,
+        }),
+      }).catch(() => null);
+
+      // स्थायी ब्राउज़र स्टोरेज में सुरक्षित करें
+      const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
+      allUsers[cleanMobile] = {
+        name: fullName.trim(),
+        mobile: cleanMobile,
+        email: email.trim() || `${cleanMobile}@orbiskart.com`,
+        password,
+      };
+      localStorage.setItem('orbiskart_all_users', JSON.stringify(allUsers));
+
+      // सीधे ऑटो-लॉगिन करा दें ताकि दोबारा न खुलना पड़े
+      saveUserSession(
+        'token_' + Date.now(),
+        fullName.trim(),
+        cleanMobile,
+        email.trim() || `${cleanMobile}@orbiskart.com`
+      );
+    } catch {
+      setErrorMsg('रजिस्ट्रेशन पूरा नहीं हो सका।');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // 4. OTP सत्यापन (Registration व OTP Login)
-  const handleVerifyOtp = async (e: React.FormEvent) => {
+  // 6. पासवर्ड भूलने पर (Forgot Password)
+  const handleSendResetOtp = (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
-
-    if (otp.trim() !== generatedOtp && otp.trim() !== '1234') {
-      setErrorMsg('अमान्य OTP! कृपया सही 4 अंकों का OTP दर्ज करें।');
+    const cleanMobile = mobile.trim().replace(/\D/g, '');
+    if (cleanMobile.length !== 10) {
+      setErrorMsg('कृपया सही 10 अंकों का मोबाइल नंबर दर्ज करें।');
       return;
     }
-
-    const cleanMobile = mobile.trim().replace(/\D/g, '');
-    const userEmail = email.trim() || `${cleanMobile}@orbiskart.com`;
-
-    // रजिस्टर्ड यूज़र लिस्ट में लोकल बैकअप सेव करें ताकि दोबारा रजिस्ट्रेशन न खुले
-    const registeredUsers = JSON.parse(localStorage.getItem('orbiskart_registered_users') || '{}');
-    registeredUsers[cleanMobile] = {
-      name: fullName.trim() || 'Customer',
-      mobile: cleanMobile,
-      email: userEmail,
-      password: password || '123456',
-    };
-    localStorage.setItem('orbiskart_registered_users', JSON.stringify(registeredUsers));
-
-    saveUserSession('orbiskart_token_' + Date.now(), fullName.trim() || 'Customer', cleanMobile, userEmail);
+    const demoCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setGeneratedOtp(demoCode);
+    setOtpSent(true);
+    alert(`Password Reset OTP: ${demoCode}`);
   };
 
-  // 5. पासवर्ड रीसेट (OTP वेरिफाई करके नया पासवर्ड सेट करना)
-  const handleVerifyForgotOtp = (e: React.FormEvent) => {
+  const handleResetPassword = (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
     if (otp.trim() !== generatedOtp && otp.trim() !== '1234') {
       setErrorMsg('अमान्य OTP!');
       return;
     }
-    setView('SET_NEW_PASSWORD');
-  };
-
-  const handleSaveNewPassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
     if (newPassword.length < 4) {
       setErrorMsg('नया पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।');
       return;
     }
 
     const cleanMobile = mobile.trim().replace(/\D/g, '');
-    const registeredUsers = JSON.parse(localStorage.getItem('orbiskart_registered_users') || '{}');
-    if (registeredUsers[cleanMobile]) {
-      registeredUsers[cleanMobile].password = newPassword;
-      localStorage.setItem('orbiskart_registered_users', JSON.stringify(registeredUsers));
+    const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
+    if (allUsers[cleanMobile]) {
+      allUsers[cleanMobile].password = newPassword;
+      localStorage.setItem('orbiskart_all_users', JSON.stringify(allUsers));
     }
 
-    setSuccessMsg('पासवर्ड सफलतापूर्वक बदल गया है! अब लॉगिन करें।');
+    setSuccessMsg('पासवर्ड सफलतापूर्वक बदल दिया गया! अब लॉगिन करें।');
+    setTab('LOGIN');
+    setLoginMethod('PASSWORD');
+    setIdentifier(cleanMobile);
     setPassword('');
-    setView('LOGIN_PASSWORD');
-  };
-
-  const saveUserSession = (token: string, name: string, mob: string, em: string) => {
-    localStorage.setItem('access_token', token);
-    localStorage.setItem('username', name);
-    localStorage.setItem('mobile', mob);
-    localStorage.setItem('email', em);
-    alert('लॉगिन सफल! OrbisKart में आपका स्वागत है 🎉');
-    router.push('/');
+    setOtpSent(false);
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f3f6] flex flex-col justify-center items-center px-4 py-10">
+    <div className="min-h-screen bg-[#f1f3f6] flex flex-col justify-center items-center px-4 py-8">
       {/* Brand Header */}
       <div className="mb-6 text-center">
         <Link href="/" className="text-3xl font-black text-blue-600 tracking-tight">
@@ -217,23 +246,36 @@ export default function AuthPage() {
       </div>
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Top Title Banner */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
-          <h2 className="text-base font-bold">
-            {view === 'ENTER_MOBILE' && 'Login or Sign Up'}
-            {view === 'LOGIN_PASSWORD' && `Welcome Back, ${fullName || 'Customer'}!`}
-            {view === 'REGISTER' && 'Create Your OrbisKart Account'}
-            {view === 'LOGIN_OTP' && 'Verify Mobile OTP'}
-            {view === 'FORGOT_PASSWORD' && 'Reset Your Password'}
-            {view === 'SET_NEW_PASSWORD' && 'Set New Password'}
-          </h2>
-          <p className="text-[11px] text-blue-100 mt-0.5">
-            {view === 'ENTER_MOBILE' && 'Enter your mobile number to get started'}
-            {view === 'LOGIN_PASSWORD' && `Enter password for +91 ${mobile}`}
-            {view === 'REGISTER' && 'One-time registration for seamless shopping'}
-            {(view === 'LOGIN_OTP' || view === 'FORGOT_PASSWORD') && `4-digit OTP sent to +91 ${mobile}`}
-            {view === 'SET_NEW_PASSWORD' && 'Enter a strong password for future logins'}
-          </p>
+        {/* Top Header Tabs */}
+        <div className="flex border-b">
+          <button
+            type="button"
+            onClick={() => {
+              setTab('LOGIN');
+              setErrorMsg('');
+            }}
+            className={`flex-1 py-3.5 text-xs font-black transition cursor-pointer ${
+              tab === 'LOGIN'
+                ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/30'
+                : 'text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            CUSTOMER LOGIN
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTab('REGISTER');
+              setErrorMsg('');
+            }}
+            className={`flex-1 py-3.5 text-xs font-black transition cursor-pointer ${
+              tab === 'REGISTER'
+                ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/30'
+                : 'text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            NEW REGISTRATION
+          </button>
         </div>
 
         <div className="p-6">
@@ -242,109 +284,151 @@ export default function AuthPage() {
               ⚠️ {errorMsg}
             </div>
           )}
-
           {successMsg && (
             <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-3 py-2 rounded-lg font-semibold">
               ✅ {successMsg}
             </div>
           )}
 
-          {/* 1. मोबाइल नंबर डालें */}
-          {view === 'ENTER_MOBILE' && (
-            <form onSubmit={handleCheckMobile} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Mobile Number (मोबाइल नंबर) <span className="text-red-500">*</span>
-                </label>
-                <div className="flex">
-                  <span className="inline-flex items-center px-3 border border-r-0 rounded-l-xl bg-gray-100 text-gray-600 text-xs font-bold">
-                    +91
-                  </span>
-                  <input
-                    type="tel"
-                    maxLength={10}
-                    placeholder="10-digit mobile number"
-                    value={mobile}
-                    onChange={(e) => setMobile(e.target.value)}
-                    className="w-full text-xs p-3 border rounded-r-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                    autoFocus
-                  />
-                </div>
+          {/* TAB 1: LOGIN (PASSWORD या OTP से) */}
+          {tab === 'LOGIN' && (
+            <div>
+              {/* Login Method Toggle */}
+              <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginMethod('PASSWORD');
+                    setOtpSent(false);
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    loginMethod === 'PASSWORD' ? 'bg-white text-blue-600 shadow-xs' : 'text-gray-600'
+                  }`}
+                >
+                  🔑 With Password
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoginMethod('OTP')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    loginMethod === 'OTP' ? 'bg-white text-blue-600 shadow-xs' : 'text-gray-600'
+                  }`}
+                >
+                  📱 With Mobile OTP
+                </button>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
-              >
-                {loading ? 'Checking...' : 'Continue ➔'}
-              </button>
-            </form>
-          )}
+              {loginMethod === 'PASSWORD' ? (
+                <form onSubmit={handlePasswordLogin} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      Mobile Number or Username
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="10-digit mobile or name"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
 
-          {/* 2. पुराने रजिस्टर्ड ग्राहक के लिए पासवर्ड लॉगिन */}
-          {view === 'LOGIN_PASSWORD' && (
-            <form onSubmit={handlePasswordLogin} className="space-y-4">
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-bold text-gray-700">Enter Password (पासवर्ड)</label>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-gray-700">Password</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTab('FORGOT_PASSWORD');
+                          setOtpSent(false);
+                          setErrorMsg('');
+                        }}
+                        className="text-[11px] text-blue-600 font-bold hover:underline cursor-pointer"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                    <input
+                      type="password"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+
                   <button
-                    type="button"
-                    onClick={() => {
-                      setOtp('');
-                      sendDemoOtp('FORGOT_PASSWORD');
-                    }}
-                    className="text-[11px] text-blue-600 font-bold hover:underline"
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
                   >
-                    Forgot Password?
+                    {loading ? 'Logging In...' : 'Log In to OrbisKart ⚡'}
                   </button>
+                </form>
+              ) : (
+                // OTP Login
+                <div>
+                  {!otpSent ? (
+                    <form onSubmit={handleSendLoginOtp} className="space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-700 block mb-1">
+                          10-Digit Mobile Number
+                        </label>
+                        <input
+                          type="tel"
+                          maxLength={10}
+                          placeholder="e.g. 9876543210"
+                          value={identifier}
+                          onChange={(e) => setIdentifier(e.target.value)}
+                          className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
+                      >
+                        Send Login OTP ➔
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleVerifyLoginOtp} className="space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-gray-700 block mb-1 text-center">
+                          Enter OTP sent to +91 {identifier}
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          placeholder="Enter 4-Digit OTP"
+                          value={otp}
+                          onChange={(e) => setOtp(e.target.value)}
+                          className="w-full text-center tracking-widest text-lg font-black p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                          autoFocus
+                        />
+                        <span className="text-[11px] text-gray-500 mt-1.5 block text-center">
+                          डेमो कोड: <strong className="text-blue-600">{generatedOtp}</strong>
+                        </span>
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
+                      >
+                        Verify OTP & Log In ⚡
+                      </button>
+                    </form>
+                  )}
                 </div>
-                <input
-                  type="password"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  autoFocus
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
-              >
-                {loading ? 'Logging in...' : 'Log In ⚡'}
-              </button>
-
-              <div className="pt-2 flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => sendDemoOtp('LOGIN_OTP')}
-                  className="text-blue-600 font-bold hover:underline"
-                >
-                  Log in with OTP instead
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView('ENTER_MOBILE')}
-                  className="text-gray-500 hover:text-gray-800"
-                >
-                  Change Number
-                </button>
-              </div>
-            </form>
+              )}
+            </div>
           )}
 
-          {/* 3. नए ग्राहक के लिए वन-टाइम रजिस्ट्रेशन (नाम, ईमेल, पासवर्ड) */}
-          {view === 'REGISTER' && (
-            <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200 text-[11px] text-blue-800">
-                नंबर <strong>+91 {mobile}</strong> के लिए पहली बार रजिस्ट्रेशन कर रहे हैं।
-              </div>
-
+          {/* TAB 2: ONE-TIME REGISTRATION */}
+          {tab === 'REGISTER' && (
+            <form onSubmit={handleRegister} className="space-y-3.5">
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
                   Full Name (पूरा नाम) <span className="text-red-500">*</span>
@@ -361,11 +445,26 @@ export default function AuthPage() {
 
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Email ID (ईमेल - ऑटो इनवॉइस हेतु)
+                  Mobile Number (मोबाइल नंबर) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  placeholder="10-digit mobile number"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                  className="w-full text-xs p-2.5 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Email ID (ऑटो इनवॉइस हेतु)
                 </label>
                 <input
                   type="email"
-                  placeholder="e.g. yourname@gmail.com (Optional)"
+                  placeholder="e.g. name@gmail.com (Optional)"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full text-xs p-2.5 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -374,7 +473,7 @@ export default function AuthPage() {
 
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Create Password (नया पासवर्ड सेट करें) <span className="text-red-500">*</span>
+                  Set Login Password (पासवर्ड बनाएँ) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="password"
@@ -391,130 +490,88 @@ export default function AuthPage() {
                 disabled={loading}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider mt-1"
               >
-                Send OTP & Complete Registration ➔
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setView('ENTER_MOBILE')}
-                className="w-full text-center text-xs text-gray-500 hover:text-gray-700 block pt-1"
-              >
-                ← Change Number
+                {loading ? 'Creating Account...' : 'Complete Registration & Start Shopping ➔'}
               </button>
             </form>
           )}
 
-          {/* 4. OTP सत्यापन स्क्रीन (Login & Register दोनों के लिए) */}
-          {view === 'LOGIN_OTP' && (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs font-bold text-gray-700">Enter 4-Digit OTP</label>
+          {/* TAB 3: FORGOT PASSWORD */}
+          {tab === 'FORGOT_PASSWORD' && (
+            <div>
+              {!otpSent ? (
+                <form onSubmit={handleSendResetOtp} className="space-y-4">
+                  <div className="text-xs text-gray-600 mb-2">
+                    अपना 10 अंकों का रजिस्टर्ड मोबाइल नंबर दर्ज करें। हम सत्यापन हेतु एक OTP भेजेंगे।
+                  </div>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="Enter 10-digit mobile number"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
                   <button
-                    type="button"
-                    onClick={() => setView('ENTER_MOBILE')}
-                    className="text-[11px] text-blue-600 font-bold hover:underline"
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
                   >
-                    Change Number
+                    Send OTP to Reset Password ➔
                   </button>
-                </div>
-                <input
-                  type="text"
-                  maxLength={6}
-                  placeholder="Enter OTP"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="w-full text-center tracking-widest text-lg font-black p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  autoFocus
-                />
-                <span className="text-[11px] text-gray-500 mt-1.5 block text-center">
-                  डेमो OTP कोड: <strong className="text-blue-600">{generatedOtp}</strong>
-                </span>
-              </div>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword} className="space-y-3.5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      Enter 4-Digit OTP
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter OTP"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-xl bg-gray-50 text-center tracking-widest font-black"
+                      required
+                    />
+                    <span className="text-[10px] text-gray-400 block mt-1 text-center">
+                      डेमो OTP: {generatedOtp}
+                    </span>
+                  </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
-              >
-                Verify & Continue ⚡
-              </button>
+                  <div>
+                    <label className="text-xs font-bold text-gray-700 block mb-1">
+                      Set New Password (नया पासवर्ड)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="New password (min 4 characters)"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => sendDemoOtp('LOGIN_OTP')}
-                className="w-full text-center text-xs text-blue-600 font-bold hover:underline block pt-1"
-              >
-                Resend OTP
-              </button>
-            </form>
-          )}
-
-          {/* 5. पासवर्ड भूलने पर OTP वेरिफाई करें */}
-          {view === 'FORGOT_PASSWORD' && (
-            <form onSubmit={handleVerifyForgotOtp} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Enter OTP sent to +91 {mobile}
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  placeholder="Enter OTP"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="w-full text-center tracking-widest text-lg font-black p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  autoFocus
-                />
-                <span className="text-[11px] text-gray-500 mt-1.5 block text-center">
-                  डेमो OTP कोड: <strong className="text-blue-600">{generatedOtp}</strong>
-                </span>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
-              >
-                Verify OTP to Reset Password ➔
-              </button>
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
+                  >
+                    Update Password & Proceed ⚡
+                  </button>
+                </form>
+              )}
 
               <button
                 type="button"
-                onClick={() => setView('LOGIN_PASSWORD')}
-                className="w-full text-center text-xs text-gray-500 hover:text-gray-800 block pt-1"
+                onClick={() => {
+                  setTab('LOGIN');
+                  setOtpSent(false);
+                }}
+                className="w-full text-center text-xs text-gray-500 hover:text-gray-800 block pt-3 cursor-pointer"
               >
-                ← Back to Password Login
+                ← Back to Login
               </button>
-            </form>
-          )}
-
-          {/* 6. नया पासवर्ड दर्ज करें */}
-          {view === 'SET_NEW_PASSWORD' && (
-            <form onSubmit={handleSaveNewPassword} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Enter New Password (नया पासवर्ड दर्ज करें)
-                </label>
-                <input
-                  type="password"
-                  placeholder="At least 4 characters"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  autoFocus
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
-              >
-                Save New Password & Log In ⚡
-              </button>
-            </form>
+            </div>
           )}
 
           <div className="mt-6 pt-4 border-t text-center text-[11px] text-gray-500">
