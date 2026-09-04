@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -25,8 +25,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onren
 const DEFAULT_TOP_CATEGORIES = [
   { key: 'all', name: 'All Store', icon: '🛍️' },
   { key: 'gifts', name: 'Gift Store', icon: '🎁' },
-  { key: 'men', name: 'Men', icon: '👔' },
-  { key: 'women', name: 'Women', icon: '👗' },
+  { key: 'kitchen', name: 'Kitchen', icon: '🍳' },
+  { key: 'machinery', name: 'Machinery', icon: '⚙️' },
+  { key: 'nursery', name: 'Nursery', icon: '🌱' },
+  { key: 'medicine', name: 'Medicines', icon: '💊' },
   { key: 'boys', name: 'Boys', icon: '👦' },
   { key: 'girls', name: 'Girls', icon: '👧' },
   { key: 'kids', name: 'Kids & Toys', icon: '🧸' },
@@ -34,10 +36,8 @@ const DEFAULT_TOP_CATEGORIES = [
   { key: 'riding', name: 'Riding & Bikes', icon: '🏍️' },
   { key: 'books', name: 'Books', icon: '📚' },
   { key: 'stationery', name: 'Stationery', icon: '✏️' },
-  { key: 'kitchen', name: 'Kitchen', icon: '🍳' },
-  { key: 'machinery', name: 'Machinery & Tools', icon: '⚙️' },
-  { key: 'nursery', name: 'Nursery & Plants', icon: '🌱' },
-  { key: 'medicine', name: 'Medicines', icon: '💊' },
+  { key: 'men', name: 'Men', icon: '👔' },
+  { key: 'women', name: 'Women', icon: '👗' },
   { key: 'mobiles', name: 'Mobiles', icon: '📱' },
   { key: 'electronics', name: 'Electronics', icon: '💻' },
   { key: 'grocery', name: 'Grocery', icon: '🛒' },
@@ -45,6 +45,8 @@ const DEFAULT_TOP_CATEGORIES = [
 
 export default function HomePage() {
   const router = useRouter();
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,7 +68,6 @@ export default function HomePage() {
   const [filterType, setFilterType] = useState<'all' | 'trending' | 'price_drop'>('all');
   const [addingId, setAddingId] = useState<number | null>(null);
 
-  // समय के अनुसार Wishes व लोकल स्टोरेज डेटा
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour >= 4 && hour < 12) {
@@ -93,7 +94,6 @@ export default function HomePage() {
       }
     }
 
-    // कार्ट काउंट लोड करें
     fetchCartCount();
   }, []);
 
@@ -106,7 +106,8 @@ export default function HomePage() {
       });
       if (res.ok) {
         const data = await res.json();
-        const totalItems = data.items ? data.items.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0;
+        const itemsList = Array.isArray(data) ? data : data.items || [];
+        const totalItems = itemsList.reduce((sum: number, item: any) => sum + item.quantity, 0);
         setCartCount(totalItems);
       }
     } catch {
@@ -134,12 +135,29 @@ export default function HomePage() {
     localStorage.setItem('wishlist_items', JSON.stringify(updated));
   };
 
+  // स्मूथ स्क्रॉल फ़ंक्शन
+  const scrollCategories = (direction: 'left' | 'right') => {
+    if (categoryScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -220 : 220;
+      categoryScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+
+  // All Products / All Store पर पूरा रीसेट
+  const resetAllFilters = () => {
+    setSelectedCategory('all');
+    setFilterType('all');
+    setSearch('');
+  };
+
   const fetchProducts = async () => {
     setLoading(true);
     try {
       const queryParams = new URLSearchParams();
       if (search.trim()) queryParams.append('search', search.trim());
-      if (selectedCategory !== 'all') queryParams.append('category', selectedCategory);
+      if (selectedCategory !== 'all' && selectedCategory !== 'gifts') {
+        queryParams.append('category', selectedCategory);
+      }
       if (sortBy !== 'newest') queryParams.append('sort', sortBy);
 
       const res = await fetch(`${API_BASE_URL}/api/products/?${queryParams.toString()}`);
@@ -171,7 +189,7 @@ export default function HomePage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchProducts();
-    }, 300);
+    }, 250);
     return () => clearTimeout(timer);
   }, [search, selectedCategory, sortBy, filterType]);
 
@@ -213,80 +231,66 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Top Header */}
+      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 h-18 flex items-center justify-between gap-4">
-          <Link href="/" className="text-2xl font-black text-blue-600 flex-shrink-0 tracking-tight">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          <Link href="/" className="text-xl sm:text-2xl font-black text-blue-600 flex-shrink-0">
             MegaStore
           </Link>
 
-          {/* Search Bar */}
-          <div className="flex-1 max-w-xl relative">
+          {/* Search Box */}
+          <div className="flex-1 max-w-lg relative">
             <input
               type="text"
-              placeholder="Search gifts, trends, electronics, fashion, medicines..."
+              placeholder="Search products, brands..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-full text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition shadow-inner"
+              className="w-full pl-9 pr-7 py-1.5 sm:py-2 border border-gray-300 rounded-full text-xs sm:text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <span className="absolute left-3.5 top-2.5 text-gray-400 text-sm">🔍</span>
+            <span className="absolute left-3 top-2 sm:top-2.5 text-gray-400 text-xs sm:text-sm">🔍</span>
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-3.5 top-2 text-xs text-gray-400 hover:text-gray-700 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
+                className="absolute right-2.5 top-2 text-[10px] text-gray-400 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* User Nav with Dynamic Greeting, Email & Mobile */}
-          <div className="flex items-center space-x-4 flex-shrink-0">
+          {/* User Nav */}
+          <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
             {user ? (
-              <div className="flex items-center space-x-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3.5 py-1.5 rounded-xl shadow-xs">
-                <div className="flex flex-col text-left leading-tight">
-                  <span className="text-[11px] font-extrabold text-blue-800">
-                    {greeting}, {user}!
-                  </span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {email && (
-                      <span className="text-[10px] text-gray-600 font-medium truncate max-w-[120px]">
-                        ✉️ {email}
-                      </span>
-                    )}
-                    {mobile && (
-                      <span className="text-[10px] text-gray-600 font-medium">
-                        📞 {mobile}
-                      </span>
-                    )}
-                  </div>
-                </div>
+              <div className="flex items-center space-x-2 bg-blue-50 border border-blue-200 px-2 sm:px-3 py-1 rounded-xl">
+                <span className="text-[10px] sm:text-xs font-bold text-blue-800">
+                  {greeting}, {user}!
+                </span>
                 <span className="text-gray-300">|</span>
                 <button
                   onClick={handleLogout}
-                  className="text-xs text-red-500 hover:text-red-700 font-bold cursor-pointer"
+                  className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 font-bold"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <Link href="/login" className="text-sm font-semibold text-blue-600 hover:underline">
+              <Link href="/login" className="text-xs sm:text-sm font-semibold text-blue-600">
                 Sign In
               </Link>
             )}
 
-            <Link href="/orders" className="text-sm font-semibold text-gray-700 hover:text-blue-600">
-              My Orders
+            <Link href="/orders" className="hidden sm:inline-block text-xs font-semibold text-gray-700">
+              Orders
             </Link>
 
-            {/* Cart with Live Badge */}
             <Link
               href="/cart"
-              className="relative flex items-center gap-1.5 text-sm font-bold bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 shadow-sm transition"
+              className="relative flex items-center gap-1 text-xs sm:text-sm font-bold bg-blue-600 text-white px-3 py-1.5 rounded-lg shadow-xs"
             >
-              <span>🛒 Cart</span>
+              <span>🛒</span>
+              <span className="hidden sm:inline">Cart</span>
               {cartCount > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[11px] font-black rounded-full h-5 w-5 flex items-center justify-center border-2 border-white shadow-xs">
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-black rounded-full h-5 w-5 flex items-center justify-center border-2 border-white shadow-xs">
                   {cartCount}
                 </span>
               )}
@@ -294,29 +298,48 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Categories Bar */}
-        <div className="bg-white border-t border-gray-100 shadow-xs">
-          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-4">
-            <div className="flex items-center space-x-5 overflow-x-auto no-scrollbar py-1">
+        {/* Categories Bar with Left & Right Arrow Buttons */}
+        <div className="bg-white border-t border-gray-100 relative">
+          <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
+            {/* Left Scroll Arrow */}
+            <button
+              onClick={() => scrollCategories('left')}
+              className="p-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full flex-shrink-0 cursor-pointer font-bold text-base"
+              title="पीछे देखें"
+            >
+              ❮
+            </button>
+
+            {/* Scrollable Icons Container */}
+            <div
+              ref={categoryScrollRef}
+              className="flex items-center space-x-4 sm:space-x-6 overflow-x-auto no-scrollbar scroll-smooth py-1 px-2 mx-1 flex-1"
+            >
               {DEFAULT_TOP_CATEGORIES.map((cat) => {
                 const isActive = selectedCategory === cat.key;
                 return (
                   <button
                     key={cat.key}
-                    onClick={() => setSelectedCategory(cat.key)}
-                    className="flex flex-col items-center space-y-1 min-w-[55px] cursor-pointer group transition"
+                    onClick={() => {
+                      if (cat.key === 'all') {
+                        resetAllFilters();
+                      } else {
+                        setSelectedCategory(cat.key);
+                      }
+                    }}
+                    className="flex flex-col items-center space-y-1 min-w-[55px] cursor-pointer group flex-shrink-0"
                   >
                     <div
                       className={`w-11 h-11 rounded-full flex items-center justify-center text-xl border transition ${
                         isActive
-                          ? 'bg-blue-600 border-blue-600 text-white scale-105 shadow-xs'
+                          ? 'bg-blue-600 border-blue-600 text-white scale-105 shadow-sm'
                           : 'bg-gray-50 border-gray-200 group-hover:border-blue-400 group-hover:bg-blue-50'
                       }`}
                     >
                       {cat.icon}
                     </div>
                     <span
-                      className={`text-[11px] font-semibold tracking-tight whitespace-nowrap ${
+                      className={`text-[11px] font-semibold whitespace-nowrap ${
                         isActive ? 'text-blue-600 font-bold' : 'text-gray-600 group-hover:text-blue-600'
                       }`}
                     >
@@ -332,20 +355,20 @@ export default function HomePage() {
                   <button
                     key={cat.id}
                     onClick={() => setSelectedCategory(cat.id.toString())}
-                    className="flex flex-col items-center space-y-1 min-w-[55px] cursor-pointer group transition"
+                    className="flex flex-col items-center space-y-1 min-w-[55px] cursor-pointer group flex-shrink-0"
                   >
                     <div
                       className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold border transition ${
                         isActive
-                          ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                          : 'bg-gray-50 border-gray-200 group-hover:border-blue-400 group-hover:bg-blue-50 text-gray-700'
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                          : 'bg-gray-50 border-gray-200 group-hover:border-blue-400 text-gray-700'
                       }`}
                     >
                       🏷️
                     </div>
                     <span
-                      className={`text-[11px] font-semibold tracking-tight whitespace-nowrap ${
-                        isActive ? 'text-blue-600 font-bold' : 'text-gray-600 group-hover:text-blue-600'
+                      className={`text-[11px] font-semibold whitespace-nowrap ${
+                        isActive ? 'text-blue-600 font-bold' : 'text-gray-600'
                       }`}
                     >
                       {cat.name}
@@ -355,13 +378,22 @@ export default function HomePage() {
               })}
             </div>
 
-            {/* Sort Filter */}
-            <div className="flex items-center space-x-2 flex-shrink-0 pl-4 border-l border-gray-200">
-              <span className="text-xs font-bold text-gray-500">Sort:</span>
+            {/* Right Scroll Arrow >> */}
+            <button
+              onClick={() => scrollCategories('right')}
+              className="p-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full flex-shrink-0 cursor-pointer font-bold text-base"
+              title="आगे देखें"
+            >
+              ❯
+            </button>
+
+            {/* Sort Dropdown */}
+            <div className="hidden md:flex items-center space-x-1 pl-3 border-l border-gray-200 flex-shrink-0">
+              <span className="text-[11px] font-bold text-gray-500">Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="text-xs font-bold bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="text-xs font-bold bg-gray-50 border rounded-lg px-2 py-1 text-gray-700 focus:outline-none"
               >
                 <option value="newest">Newest</option>
                 <option value="price_low">Price: Low to High</option>
@@ -375,11 +407,11 @@ export default function HomePage() {
         <div className="bg-slate-50 border-t border-b border-gray-200 px-4 py-2">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Quick Filters:</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider hidden sm:inline">Filters:</span>
               <button
-                onClick={() => setFilterType('all')}
+                onClick={resetAllFilters}
                 className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer ${
-                  filterType === 'all'
+                  filterType === 'all' && selectedCategory === 'all'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
                 }`}
@@ -394,7 +426,7 @@ export default function HomePage() {
                     : 'bg-white border border-gray-300 text-gray-700 hover:bg-amber-50'
                 }`}
               >
-                🔥 Trending Deals
+                🔥 Trending
               </button>
               <button
                 onClick={() => setFilterType('price_drop')}
@@ -404,52 +436,49 @@ export default function HomePage() {
                     : 'bg-white border border-gray-300 text-gray-700 hover:bg-emerald-50'
                 }`}
               >
-                📉 Price Drop Alert
+                📉 Price Drop
               </button>
             </div>
 
-            <div className="text-xs font-semibold text-gray-600">
-              Wishlist: <span className="text-red-500 font-bold">{wishlist.length}</span> items
+            <div className="text-xs font-semibold text-gray-600 whitespace-nowrap">
+              Wishlist: <span className="text-red-500 font-bold">{wishlist.length}</span>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Product Catalog */}
-      <main className="max-w-7xl mx-auto px-4 pt-6">
+      {/* Catalog Grid */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800">
             {search
-              ? `Search results for "${search}"`
+              ? `Results for "${search}"`
+              : selectedCategory !== 'all'
+              ? `Category: ${selectedCategory.toUpperCase()}`
               : filterType === 'trending'
               ? '🔥 Trending Right Now'
               : filterType === 'price_drop'
-              ? '📉 Huge Price Drops & Deals'
+              ? '📉 Price Drops'
               : 'Deals of the Day'}
           </h2>
-          <span className="text-xs font-bold text-gray-500">{products.length} Products Found</span>
+          <span className="text-xs font-bold text-gray-500">{products.length} Products</span>
         </div>
 
         {loading ? (
-          <div className="text-center py-24 text-gray-400 font-bold">Loading best deals...</div>
+          <div className="text-center py-20 text-gray-400 font-bold">Loading deals...</div>
         ) : products.length === 0 ? (
-          <div className="bg-white border rounded-2xl p-16 text-center shadow-sm">
-            <span className="text-4xl block mb-3">🔍</span>
-            <p className="text-gray-700 font-bold text-lg">कोई उत्पाद नहीं मिला।</p>
-            <p className="text-gray-400 text-sm mt-1">कृपया कोई दूसरा सर्च शब्द या फ़िल्टर आज़माएँ।</p>
+          <div className="bg-white border rounded-2xl p-12 text-center shadow-sm">
+            <span className="text-4xl block mb-2">🔍</span>
+            <p className="text-gray-700 font-bold text-sm">इस कैटेगरी में कोई उत्पाद नहीं मिला।</p>
             <button
-              onClick={() => {
-                setSearch('');
-                setSelectedCategory('all');
-                setFilterType('all');
-              }}
-              className="mt-4 inline-block bg-blue-600 text-white font-semibold px-5 py-2 rounded-lg text-xs hover:bg-blue-700 transition cursor-pointer"
+              onClick={resetAllFilters}
+              className="mt-3 inline-block bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg text-xs hover:bg-blue-700"
             >
-              Reset Filters
+              सभी उत्पाद देखें (All Products)
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {products.map((product) => {
               const imageUrl = product.image
                 ? product.image.startsWith('http')
@@ -464,21 +493,18 @@ export default function HomePage() {
               return (
                 <div
                   key={product.id}
-                  className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative group"
+                  className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative"
                 >
                   {/* Wishlist Button */}
                   <button
                     onClick={() => toggleWishlist(product.id)}
-                    title={isFav ? 'Remove from Wishlist' : 'Add to Wishlist'}
-                    className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/90 backdrop-blur-xs flex items-center justify-center shadow-xs hover:scale-110 transition cursor-pointer"
+                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm"
                   >
-                    <span className={isFav ? 'text-red-500 text-base' : 'text-gray-300 hover:text-red-400 text-base'}>
-                      {isFav ? '❤️' : '🤍'}
-                    </span>
+                    {isFav ? '❤️' : '🤍'}
                   </button>
 
                   <div>
-                    <div className="w-full h-40 bg-gray-50 rounded-lg mb-3 flex items-center justify-center overflow-hidden relative">
+                    <div className="w-full h-36 sm:h-40 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative">
                       {imageUrl ? (
                         <img src={imageUrl} alt={product.title} className="w-full h-full object-contain p-2" />
                       ) : (
@@ -504,19 +530,20 @@ export default function HomePage() {
                   </div>
 
                   <div>
-                    <div className="flex items-baseline space-x-2 mb-3">
-                      <span className="text-base font-black text-gray-900">₹{product.price}</span>
+                    <div className="flex items-baseline space-x-2 mb-2.5">
+                      <span className="text-sm sm:text-base font-black text-gray-900">₹{product.price}</span>
                       {product.original_price && (
-                        <span className="text-[11px] text-gray-400 line-through">₹{product.original_price}</span>
+                        <span className="text-[10px] sm:text-[11px] text-gray-400 line-through">
+                          ₹{product.original_price}
+                        </span>
                       )}
                     </div>
 
-                    {/* Add to Cart & Buy Now Buttons */}
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5 sm:gap-2">
                       <button
                         onClick={() => handleAddToCart(product.id, false)}
                         disabled={addingId === product.id}
-                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-xs py-2 rounded-lg transition disabled:bg-gray-200 shadow-xs cursor-pointer"
+                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition"
                       >
                         {addingId === product.id ? '...' : 'Add to Cart 🛒'}
                       </button>
@@ -524,7 +551,7 @@ export default function HomePage() {
                       <button
                         onClick={() => handleAddToCart(product.id, true)}
                         disabled={addingId === product.id}
-                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2 rounded-lg transition disabled:bg-gray-200 shadow-xs cursor-pointer"
+                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition"
                       >
                         ⚡ Buy Now
                       </button>
