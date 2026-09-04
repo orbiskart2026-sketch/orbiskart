@@ -12,16 +12,17 @@ type LoginMethod = 'PASSWORD' | 'OTP';
 export default function AuthPage() {
   const router = useRouter();
 
-  // Tab & Method States
   const [tab, setTab] = useState<TabMode>('LOGIN');
   const [loginMethod, setLoginMethod] = useState<LoginMethod>('PASSWORD');
 
-  // Input Fields
-  const [identifier, setIdentifier] = useState(''); // Mobile or Username
+  // Input States
+  const [mobileInput, setMobileInput] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [mobile, setMobile] = useState('');
+  const [registerMobile, setRegisterMobile] = useState('');
   const [email, setEmail] = useState('');
+  
+  // OTP States
   const [otp, setOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('1234');
   const [newPassword, setNewPassword] = useState('');
@@ -31,7 +32,7 @@ export default function AuthPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // 1. यदि ग्राहक पहले से लॉग-इन है, तो उसे तुरंत होमपेज पर भेजें (रजिस्ट्रेशन नहीं खुलेगा)
+  // यदि ग्राहक पहले से लॉग-इन है, तो सीधे होमपेज पर भेजें
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     const username = localStorage.getItem('username');
@@ -40,60 +41,56 @@ export default function AuthPage() {
     }
   }, [router]);
 
-  // लॉगिन सेशन सेव करने का कॉमन फंक्शन
   const saveUserSession = (token: string, name: string, mob: string, em: string) => {
     localStorage.setItem('access_token', token);
     localStorage.setItem('username', name);
     localStorage.setItem('mobile', mob);
     localStorage.setItem('email', em);
-    alert(`स्वागत है, ${name}! आपका लॉगिन सफल रहा 🎉`);
+    alert(`स्वागत है, ${name}! लॉगिन सफल रहा 🎉`);
     router.replace('/');
   };
 
-  // 2. लॉगिन हैंडलर (Password से)
+  // 1. पासवर्ड से लॉगिन
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanId = identifier.trim();
-    if (!cleanId || !password) {
-      setErrorMsg('कृपया मोबाइल नंबर/यूज़रनेम और पासवर्ड दोनों दर्ज करें।');
+    const cleanMobile = mobileInput.trim().replace(/\D/g, '');
+    if (cleanMobile.length !== 10) {
+      setErrorMsg(`मोबाइल नंबर अधूरा है! आपने केवल ${cleanMobile.length} अंक डाले हैं, 10 अंक डालें।`);
+      return;
+    }
+    if (!password) {
+      setErrorMsg('कृपया पासवर्ड दर्ज करें।');
       return;
     }
 
     setLoading(true);
     try {
-      // बैकएंड लॉगिन प्रयास
+      // बैकएंड लॉगिन कॉल
       const res = await fetch(`${API_BASE_URL}/api/auth/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: cleanId, password }),
+        body: JSON.stringify({ mobile: cleanMobile, password }),
       }).catch(() => null);
 
       if (res && res.ok) {
         const data = await res.json();
-        saveUserSession(
-          data.token || 'token_' + Date.now(),
-          data.name || cleanId,
-          data.mobile || cleanId,
-          data.email || ''
-        );
+        saveUserSession(data.token || 'token_' + Date.now(), data.name || cleanMobile, cleanMobile, data.email || '');
         return;
       }
 
-      // लोकल रजिस्टर्ड डेटाबेस में चेक करें
+      // लोकल रजिस्टर्ड डेटाबेस चेक
       const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
-      const foundUser = Object.values(allUsers).find(
-        (u: any) =>
-          (u.mobile === cleanId || u.name?.toLowerCase() === cleanId.toLowerCase() || u.email?.toLowerCase() === cleanId.toLowerCase()) &&
-          u.password === password
-      ) as any;
+      const foundUser = allUsers[cleanMobile];
 
-      if (foundUser) {
-        saveUserSession('token_' + Date.now(), foundUser.name, foundUser.mobile, foundUser.email);
+      if (foundUser && foundUser.password === password) {
+        saveUserSession('token_' + Date.now(), foundUser.name, cleanMobile, foundUser.email);
+      } else if (!foundUser) {
+        setErrorMsg('यह मोबाइल नंबर रजिस्टर्ड नहीं है। कृपया "NEW REGISTRATION" टैब से रजिस्टर करें।');
       } else {
-        setErrorMsg('गलत मोबाइल नंबर, यूज़रनेम या पासवर्ड! कृपया पुनः प्रयास करें।');
+        setErrorMsg('गलत पासवर्ड! कृपया सही पासवर्ड डालें या "With Mobile OTP" से लॉगिन करें।');
       }
     } catch {
       setErrorMsg('लॉगिन करने में त्रुटि आई। कृपया पुनः प्रयास करें।');
@@ -102,13 +99,13 @@ export default function AuthPage() {
     }
   };
 
-  // 3. OTP लॉगिन हैंडलर (Send OTP)
+  // 2. मोबाइल OTP भेजना
   const handleSendLoginOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    const cleanMobile = identifier.trim().replace(/\D/g, '');
+    const cleanMobile = mobileInput.trim().replace(/\D/g, '');
     if (cleanMobile.length !== 10) {
-      setErrorMsg('OTP प्राप्त करने हेतु कृपया सही 10 अंकों का मोबाइल नंबर दर्ज करें।');
+      setErrorMsg(`मोबाइल नंबर में 10 अंक होने चाहिए। अभी केवल ${cleanMobile.length} अंक हैं।`);
       return;
     }
 
@@ -118,38 +115,38 @@ export default function AuthPage() {
     alert(`OrbisKart Login OTP: ${demoCode}`);
   };
 
-  // 4. OTP लॉगिन कन्फर्मेशन
+  // 3. OTP सत्यापित करके लॉगिन
   const handleVerifyLoginOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     if (otp.trim() !== generatedOtp && otp.trim() !== '1234') {
-      setErrorMsg('अमान्य OTP! कृपया सही 4 अंकों का कोड दर्ज करें।');
+      setErrorMsg('अमान्य OTP! कृपया सही कोड दर्ज करें।');
       return;
     }
 
-    const cleanMobile = identifier.trim().replace(/\D/g, '');
+    const cleanMobile = mobileInput.trim().replace(/\D/g, '');
     const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
     const existing = allUsers[cleanMobile];
 
-    const uName = existing ? existing.name : `User_${cleanMobile.slice(-4)}`;
+    const uName = existing ? existing.name : `Customer_${cleanMobile.slice(-4)}`;
     const uEmail = existing ? existing.email : `${cleanMobile}@orbiskart.com`;
 
     saveUserSession('token_' + Date.now(), uName, cleanMobile, uEmail);
   };
 
-  // 5. नया रजिस्ट्रेशन हैंडलर (स्थायी डेटा सेव)
+  // 4. नया रजिस्ट्रेशन
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    const cleanMobile = mobile.trim().replace(/\D/g, '');
+    const cleanMobile = registerMobile.trim().replace(/\D/g, '');
     if (!fullName.trim()) {
       setErrorMsg('कृपया अपना पूरा नाम दर्ज करें।');
       return;
     }
     if (cleanMobile.length !== 10) {
-      setErrorMsg('कृपया 10 अंकों का मान्य मोबाइल नंबर दर्ज करें।');
+      setErrorMsg(`मोबाइल नंबर में 10 अंक होने चाहिए। आपने ${cleanMobile.length} अंक लिखे हैं।`);
       return;
     }
     if (password.length < 4) {
@@ -159,7 +156,6 @@ export default function AuthPage() {
 
     setLoading(true);
     try {
-      // बैकएंड पर यूज़र सेव करें
       await fetch(`${API_BASE_URL}/api/auth/register/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -171,7 +167,7 @@ export default function AuthPage() {
         }),
       }).catch(() => null);
 
-      // स्थायी ब्राउज़र स्टोरेज में सुरक्षित करें
+      // लोकल स्टोरेज में सेव
       const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
       allUsers[cleanMobile] = {
         name: fullName.trim(),
@@ -181,7 +177,6 @@ export default function AuthPage() {
       };
       localStorage.setItem('orbiskart_all_users', JSON.stringify(allUsers));
 
-      // सीधे ऑटो-लॉगिन करा दें ताकि दोबारा न खुलना पड़े
       saveUserSession(
         'token_' + Date.now(),
         fullName.trim(),
@@ -195,10 +190,10 @@ export default function AuthPage() {
     }
   };
 
-  // 6. पासवर्ड भूलने पर (Forgot Password)
+  // 5. पासवर्ड रीसेट
   const handleSendResetOtp = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanMobile = mobile.trim().replace(/\D/g, '');
+    const cleanMobile = mobileInput.trim().replace(/\D/g, '');
     if (cleanMobile.length !== 10) {
       setErrorMsg('कृपया सही 10 अंकों का मोबाइल नंबर दर्ज करें।');
       return;
@@ -220,24 +215,22 @@ export default function AuthPage() {
       return;
     }
 
-    const cleanMobile = mobile.trim().replace(/\D/g, '');
+    const cleanMobile = mobileInput.trim().replace(/\D/g, '');
     const allUsers = JSON.parse(localStorage.getItem('orbiskart_all_users') || '{}');
     if (allUsers[cleanMobile]) {
       allUsers[cleanMobile].password = newPassword;
       localStorage.setItem('orbiskart_all_users', JSON.stringify(allUsers));
     }
 
-    setSuccessMsg('पासवर्ड सफलतापूर्वक बदल दिया गया! अब लॉगिन करें।');
+    setSuccessMsg('पासवर्ड बदल गया! अब नए पासवर्ड से लॉगिन करें।');
     setTab('LOGIN');
     setLoginMethod('PASSWORD');
-    setIdentifier(cleanMobile);
     setPassword('');
     setOtpSent(false);
   };
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] flex flex-col justify-center items-center px-4 py-8">
-      {/* Brand Header */}
       <div className="mb-6 text-center">
         <Link href="/" className="text-3xl font-black text-blue-600 tracking-tight">
           OrbisKart
@@ -246,7 +239,7 @@ export default function AuthPage() {
       </div>
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Top Header Tabs */}
+        {/* Navigation Tabs */}
         <div className="flex border-b">
           <button
             type="button"
@@ -260,7 +253,7 @@ export default function AuthPage() {
                 : 'text-gray-500 hover:text-gray-800'
             }`}
           >
-            CUSTOMER LOGIN
+            CUSTOMER LOGIN (लॉगिन)
           </button>
           <button
             type="button"
@@ -274,7 +267,7 @@ export default function AuthPage() {
                 : 'text-gray-500 hover:text-gray-800'
             }`}
           >
-            NEW REGISTRATION
+            NEW REGISTRATION (नया खाता)
           </button>
         </div>
 
@@ -290,10 +283,9 @@ export default function AuthPage() {
             </div>
           )}
 
-          {/* TAB 1: LOGIN (PASSWORD या OTP से) */}
+          {/* TAB 1: LOGIN */}
           {tab === 'LOGIN' && (
             <div>
-              {/* Login Method Toggle */}
               <div className="flex gap-2 p-1 bg-gray-100 rounded-xl mb-5">
                 <button
                   type="button"
@@ -321,22 +313,34 @@ export default function AuthPage() {
               {loginMethod === 'PASSWORD' ? (
                 <form onSubmit={handlePasswordLogin} className="space-y-4">
                   <div>
-                    <label className="text-xs font-bold text-gray-700 block mb-1">
-                      Mobile Number or Username
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="10-digit mobile or name"
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-gray-700">
+                        10-Digit Mobile Number (मोबाइल नंबर)
+                      </label>
+                      <span className={`text-[11px] font-bold ${mobileInput.replace(/\D/g, '').length === 10 ? 'text-emerald-600' : 'text-orange-500'}`}>
+                        {mobileInput.replace(/\D/g, '').length}/10 Digits
+                      </span>
+                    </div>
+                    <div className="flex">
+                      <span className="inline-flex items-center px-3 border border-r-0 rounded-l-xl bg-gray-100 text-gray-600 text-xs font-bold">
+                        +91
+                      </span>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="e.g. 9876543210"
+                        value={mobileInput}
+                        onChange={(e) => setMobileInput(e.target.value)}
+                        className="w-full text-xs p-3 border rounded-r-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                        autoFocus
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-gray-700">Password</label>
+                      <label className="text-xs font-bold text-gray-700">Password (पासवर्ड)</label>
                       <button
                         type="button"
                         onClick={() => {
@@ -368,23 +372,30 @@ export default function AuthPage() {
                   </button>
                 </form>
               ) : (
-                // OTP Login
                 <div>
                   {!otpSent ? (
                     <form onSubmit={handleSendLoginOtp} className="space-y-4">
                       <div>
-                        <label className="text-xs font-bold text-gray-700 block mb-1">
-                          10-Digit Mobile Number
-                        </label>
-                        <input
-                          type="tel"
-                          maxLength={10}
-                          placeholder="e.g. 9876543210"
-                          value={identifier}
-                          onChange={(e) => setIdentifier(e.target.value)}
-                          className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-xs font-bold text-gray-700">10-Digit Mobile Number</label>
+                          <span className={`text-[11px] font-bold ${mobileInput.replace(/\D/g, '').length === 10 ? 'text-emerald-600' : 'text-orange-500'}`}>
+                            {mobileInput.replace(/\D/g, '').length}/10
+                          </span>
+                        </div>
+                        <div className="flex">
+                          <span className="inline-flex items-center px-3 border border-r-0 rounded-l-xl bg-gray-100 text-gray-600 text-xs font-bold">
+                            +91
+                          </span>
+                          <input
+                            type="tel"
+                            maxLength={10}
+                            placeholder="Enter 10-digit mobile"
+                            value={mobileInput}
+                            onChange={(e) => setMobileInput(e.target.value)}
+                            className="w-full text-xs p-3 border rounded-r-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
+                        </div>
                       </div>
                       <button
                         type="submit"
@@ -397,12 +408,12 @@ export default function AuthPage() {
                     <form onSubmit={handleVerifyLoginOtp} className="space-y-4">
                       <div>
                         <label className="text-xs font-bold text-gray-700 block mb-1 text-center">
-                          Enter OTP sent to +91 {identifier}
+                          Enter OTP sent to +91 {mobileInput}
                         </label>
                         <input
                           type="text"
                           maxLength={6}
-                          placeholder="Enter 4-Digit OTP"
+                          placeholder="Enter OTP"
                           value={otp}
                           onChange={(e) => setOtp(e.target.value)}
                           className="w-full text-center tracking-widest text-lg font-black p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -426,12 +437,12 @@ export default function AuthPage() {
             </div>
           )}
 
-          {/* TAB 2: ONE-TIME REGISTRATION */}
+          {/* TAB 2: REGISTER */}
           {tab === 'REGISTER' && (
             <form onSubmit={handleRegister} className="space-y-3.5">
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Full Name (पूरा नाम) <span className="text-red-500">*</span>
+                  Full Name (ग्राहक का नाम) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -444,18 +455,28 @@ export default function AuthPage() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Mobile Number (मोबाइल नंबर) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  maxLength={10}
-                  placeholder="10-digit mobile number"
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  className="w-full text-xs p-2.5 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-bold text-gray-700">
+                    Mobile Number (मोबाइल नंबर) <span className="text-red-500">*</span>
+                  </label>
+                  <span className={`text-[11px] font-bold ${registerMobile.replace(/\D/g, '').length === 10 ? 'text-emerald-600' : 'text-orange-500'}`}>
+                    {registerMobile.replace(/\D/g, '').length}/10
+                  </span>
+                </div>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 border border-r-0 rounded-l-xl bg-gray-100 text-gray-600 text-xs font-bold">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="10-digit mobile number"
+                    value={registerMobile}
+                    onChange={(e) => setRegisterMobile(e.target.value)}
+                    className="w-full text-xs p-2.5 border rounded-r-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
@@ -473,7 +494,7 @@ export default function AuthPage() {
 
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  Set Login Password (पासवर्ड बनाएँ) <span className="text-red-500">*</span>
+                  Create Password (पासवर्ड बनाएँ) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="password"
@@ -490,7 +511,7 @@ export default function AuthPage() {
                 disabled={loading}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider mt-1"
               >
-                {loading ? 'Creating Account...' : 'Complete Registration & Start Shopping ➔'}
+                {loading ? 'Creating Account...' : 'Complete Registration ➔'}
               </button>
             </form>
           )}
@@ -501,14 +522,14 @@ export default function AuthPage() {
               {!otpSent ? (
                 <form onSubmit={handleSendResetOtp} className="space-y-4">
                   <div className="text-xs text-gray-600 mb-2">
-                    अपना 10 अंकों का रजिस्टर्ड मोबाइल नंबर दर्ज करें। हम सत्यापन हेतु एक OTP भेजेंगे।
+                    अपना 10 अंकों का रजिस्टर्ड मोबाइल नंबर डालें। पासवर्ड रीसेट OTP भेजा जाएगा।
                   </div>
                   <input
                     type="tel"
                     maxLength={10}
                     placeholder="Enter 10-digit mobile number"
-                    value={mobile}
-                    onChange={(e) => setMobile(e.target.value)}
+                    value={mobileInput}
+                    onChange={(e) => setMobileInput(e.target.value)}
                     className="w-full text-xs p-3 border rounded-xl bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
@@ -516,7 +537,7 @@ export default function AuthPage() {
                     type="submit"
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
                   >
-                    Send OTP to Reset Password ➔
+                    Send Reset OTP ➔
                   </button>
                 </form>
               ) : (
@@ -556,7 +577,7 @@ export default function AuthPage() {
                     type="submit"
                     className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-3.5 rounded-xl transition cursor-pointer uppercase tracking-wider"
                   >
-                    Update Password & Proceed ⚡
+                    Save New Password ⚡
                   </button>
                 </form>
               )}
@@ -573,12 +594,6 @@ export default function AuthPage() {
               </button>
             </div>
           )}
-
-          <div className="mt-6 pt-4 border-t text-center text-[11px] text-gray-500">
-            By continuing, you agree to OrbisKart&apos;s{' '}
-            <span className="text-blue-600 underline">Terms of Use</span> and{' '}
-            <span className="text-blue-600 underline">Privacy Policy</span>.
-          </div>
         </div>
       </div>
     </div>
