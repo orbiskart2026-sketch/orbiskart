@@ -11,13 +11,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // लाइव Render बैकएंड URL (एनवायरनमेंट वेरिएबल बैकअप के साथ)
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/token/', {
+      const res = await fetch(`${API_URL}/api/token/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
