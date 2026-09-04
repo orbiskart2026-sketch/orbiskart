@@ -2,253 +2,318 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-interface Category {
+interface CartItem {
   id: number;
-  name: string;
+  product: {
+    id: number;
+    title: string;
+    price: string;
+    image: string | null;
+  };
+  quantity: number;
 }
 
-interface Product {
-  id: number;
-  title: string;
-  description: string;
-  price: string;
-  original_price: string | null;
-  image: string | null;
-  stock: number;
-  category_name?: string;
-}
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
-export default function HomePage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+export default function CartPage() {
+  const router = useRouter();
+  const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Filter States
-  const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('newest');
-  const [addingId, setAddingId] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const fetchProducts = async () => {
+  // शिपिंग एड्रेस स्टेट्स
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [stateName, setStateName] = useState('');
+
+  const fetchCart = async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
     setLoading(true);
     try {
-      const queryParams = new URLSearchParams();
-      if (search.trim()) queryParams.append('search', search.trim());
-      if (selectedCategory !== 'all') queryParams.append('category', selectedCategory);
-      if (sortBy !== 'newest') queryParams.append('sort', sortBy);
-
-      const res = await fetch(`http://127.0.0.1:8000/api/products/?${queryParams.toString()}`);
+      const res = await fetch(`${API_BASE_URL}/api/cart/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const data = await res.json();
-        // Check if data is new format or array
-        if (data.products) {
-          setProducts(data.products);
-          setCategories(data.categories || []);
-        } else {
-          setProducts(data);
-        }
+        setItems(data.items || []);
       }
     } catch (err) {
-      console.error('Failed to fetch products', err);
+      console.error('Error fetching cart:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProducts();
-    }, 300); // 300ms Debounce for live search typing
+    fetchCart();
+    const storedUser = localStorage.getItem('username');
+    const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
+    if (storedUser) setFullName(storedUser);
+    if (storedMobile) setPhone(storedMobile);
+  }, []);
 
-    return () => clearTimeout(timer);
-  }, [search, selectedCategory, sortBy]);
-
-  const handleAddToCart = async (productId: number) => {
+  const updateQuantity = async (productId: number, qty: number) => {
     const token = localStorage.getItem('access_token');
-    if (!token) {
-      alert('कृपया पहले लॉगिन करें।');
-      return;
-    }
+    if (!token || qty < 1) return;
 
-    setAddingId(productId);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/cart/add/', {
+      const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product_id: productId, quantity: 1 }),
+        body: JSON.stringify({ product_id: productId, quantity: qty }),
+      });
+      if (res.ok) {
+        fetchCart();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handlePlaceOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      alert('कृपया पहले लॉगिन करें।');
+      router.push('/login');
+      return;
+    }
+
+    if (!fullName || !phone || !pincode || !address || !city) {
+      alert('कृपया पूरा डिलीवरी पता और मोबाइल नंबर भरें।');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/orders/create/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          shipping_address: `${fullName}, ${address}, ${city}, ${stateName} - ${pincode}, Mob: ${phone}`,
+          payment_method: 'COD',
+        }),
       });
 
       if (res.ok) {
-        alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
+        alert('ऑर्डर सफलतापूर्वक दर्ज किया गया! 🎉');
+        router.push('/orders');
       } else {
-        alert('कार्ट में जोड़ने में विफल।');
+        alert('ऑर्डर पूरा करने में समस्या आई। कृपया पुनः प्रयास करें।');
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setAddingId(null);
+      setSubmitting(false);
     }
   };
 
+  const subtotal = items.reduce(
+    (acc, item) => acc + parseFloat(item.product.price) * item.quantity,
+    0
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 pb-20">
-      {/* Top Navigation */}
+    <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
+      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-          <Link href="/" className="text-2xl font-black text-blue-600 flex-shrink-0">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <Link href="/" className="text-2xl font-black text-blue-600">
             MegaStore
           </Link>
-
-          {/* Real-time Search Input */}
-          <div className="flex-1 max-w-xl relative">
-            <input
-              type="text"
-              placeholder="Search products, brands, electronics..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border rounded-full text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-            />
-            <span className="absolute left-3.5 top-2.5 text-gray-400 text-sm">🔍</span>
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-3.5 top-2 text-xs text-gray-400 hover:text-gray-700 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-5 flex-shrink-0">
-            <Link href="/orders" className="text-sm font-semibold text-gray-700 hover:text-blue-600">
-              My Orders
-            </Link>
-            <Link href="/cart" className="text-sm font-bold bg-blue-50 text-blue-600 px-3.5 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-100 transition">
-              🛒 Cart
-            </Link>
-          </div>
-        </div>
-
-        {/* Category Pills & Sorting Bar */}
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3 border-t bg-white">
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 max-w-full">
-            <button
-              onClick={() => setSelectedCategory('all')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
-                selectedCategory === 'all'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              All Categories
-            </button>
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id.toString())}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
-                  selectedCategory === cat.id.toString()
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
-
-          {/* Sort Dropdown */}
-          <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-gray-500">Sort by:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="text-xs font-bold bg-gray-50 border rounded-lg px-2.5 py-1.5 text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="newest">Newest Arrivals</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-            </select>
-          </div>
+          <Link href="/" className="text-sm font-bold text-blue-600 hover:underline">
+            ← Continue Shopping
+          </Link>
         </div>
       </header>
 
-      {/* Main Catalog Grid */}
-      <main className="max-w-7xl mx-auto px-4 pt-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-extrabold text-gray-900">
-            {search ? `Search results for "${search}"` : 'Explore Products'}
-          </h2>
-          <span className="text-xs font-bold text-gray-500">{products.length} Products Found</span>
-        </div>
+      <main className="max-w-7xl mx-auto px-4 pt-6">
+        <h1 className="text-xl font-black mb-6">Shopping Cart & Checkout</h1>
 
         {loading ? (
-          <div className="text-center py-24 text-gray-400 font-bold">Finding best matches...</div>
-        ) : products.length === 0 ? (
-          <div className="bg-white border rounded-2xl p-16 text-center shadow-sm">
-            <span className="text-4xl block mb-3">🔍</span>
-            <p className="text-gray-700 font-bold text-lg">कोई उत्पाद नहीं मिला।</p>
-            <p className="text-gray-400 text-sm mt-1">कृपया कोई दूसरा सर्च शब्द या फ़िल्टर आज़माएँ।</p>
-            <button
-              onClick={() => { setSearch(''); setSelectedCategory('all'); }}
-              className="mt-4 inline-block bg-blue-600 text-white font-semibold px-5 py-2 rounded-lg text-xs hover:bg-blue-700 transition"
+          <div className="text-center py-20 text-gray-500 font-bold">कार्ट लोड हो रहा है...</div>
+        ) : items.length === 0 ? (
+          <div className="bg-white rounded-2xl p-12 text-center border shadow-xs">
+            <span className="text-5xl block mb-3">🛒</span>
+            <h2 className="text-lg font-bold text-gray-800">आपका कार्ट खाली है!</h2>
+            <p className="text-xs text-gray-500 mt-1 mb-5">स्टोर से अपने पसंदीदा उत्पाद जोड़ें।</p>
+            <Link
+              href="/"
+              className="bg-blue-600 text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-blue-700 transition"
             >
-              Reset Filters
-            </button>
+              Shop Now
+            </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {products.map((product) => {
-              const imageUrl = product.image
-                ? (product.image.startsWith('http') ? product.image : `http://127.0.0.1:8000${product.image}`)
-                : null;
-
-              return (
-                <div
-                  key={product.id}
-                  className="bg-white border rounded-2xl p-4 shadow-sm hover:shadow-md transition flex flex-col justify-between"
-                >
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* बायाँ कॉलम: कार्ट प्रोडक्ट्स और डिलीवरी एड्रेस */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* डिलीवरी एड्रेस फॉर्म */}
+              <div className="bg-white p-5 rounded-2xl border shadow-xs">
+                <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <span>📍</span> Delivery Address
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <div className="w-full h-48 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden relative">
-                      {imageUrl ? (
-                        <img src={imageUrl} alt={product.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-xs text-gray-400 font-bold">No Image</span>
-                      )}
-                      {product.category_name && (
-                        <span className="absolute top-2 left-2 bg-white/90 backdrop-blur-xs text-[10px] font-extrabold px-2 py-0.5 rounded shadow-xs text-gray-700">
-                          {product.category_name}
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="font-bold text-gray-900 text-sm mb-1 line-clamp-2">{product.title}</h3>
-                    <p className="text-gray-500 text-xs line-clamp-2 mb-3">{product.description}</p>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="Receiver's name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
                   </div>
-
                   <div>
-                    <div className="flex items-baseline space-x-2 mb-4">
-                      <span className="text-lg font-black text-gray-900">₹{product.price}</span>
-                      {product.original_price && (
-                        <span className="text-xs text-gray-400 line-through">₹{product.original_price}</span>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={() => handleAddToCart(product.id)}
-                      disabled={addingId === product.id}
-                      className="w-full bg-blue-600 text-white font-bold text-xs py-2.5 rounded-xl hover:bg-blue-700 transition disabled:bg-blue-300 shadow-sm"
-                    >
-                      {addingId === product.id ? 'Adding...' : 'Add to Cart 🛒'}
-                    </button>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Mobile Number</label>
+                    <input
+                      type="text"
+                      placeholder="10-digit number"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Street Address / House No / Landmark</label>
+                    <input
+                      type="text"
+                      placeholder="Near temple, main road..."
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">City / Town</label>
+                    <input
+                      type="text"
+                      placeholder="City"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-600 block mb-1">Pincode</label>
+                    <input
+                      type="text"
+                      placeholder="6-digit pincode"
+                      value={pincode}
+                      onChange={(e) => setPincode(e.target.value)}
+                      className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      required
+                    />
                   </div>
                 </div>
-              );
-            })}
+              </div>
+
+              {/* कार्ट आइटम्स लिस्ट */}
+              <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
+                <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <span>🛍️</span> Cart Items ({items.length})
+                </h2>
+                {items.map((item) => {
+                  const img = item.product.image
+                    ? item.product.image.startsWith('http')
+                      ? item.product.image
+                      : `${API_BASE_URL}${item.product.image}`
+                    : null;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border">
+                          {img ? (
+                            <img src={img} alt={item.product.title} className="w-full h-full object-contain" />
+                          ) : (
+                            <span className="text-[10px] text-gray-400">No Img</span>
+                          )}
+                        </div>
+                        <div>
+                          <h3 className="text-xs font-bold text-gray-800 line-clamp-1">{item.product.title}</h3>
+                          <span className="text-xs font-black text-gray-900 block mt-1">₹{item.product.price}</span>
+                        </div>
+                      </div>
+
+                      {/* मात्रा बटन */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                          className="w-7 h-7 rounded border bg-gray-100 font-bold hover:bg-gray-200"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-bold px-1">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                          className="w-7 h-7 rounded border bg-gray-100 font-bold hover:bg-gray-200"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* दायाँ कॉलम: प्राइस समरी */}
+            <div className="lg:col-span-1">
+              <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
+                <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
+                <div className="space-y-3 text-xs border-b pb-4">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Total Items</span>
+                    <span>{items.reduce((s, i) => s + i.quantity, 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Price</span>
+                    <span>₹{subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Delivery Charges</span>
+                    <span className="text-emerald-600 font-bold">FREE</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between font-black text-sm pt-4 mb-5">
+                  <span>Total Amount</span>
+                  <span className="text-blue-600">₹{subtotal.toFixed(2)}</span>
+                </div>
+
+                <button
+                  onClick={handlePlaceOrder}
+                  disabled={submitting}
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
+                >
+                  {submitting ? 'Placing Order...' : 'Place Order ⚡'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>
