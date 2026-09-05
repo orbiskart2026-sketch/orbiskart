@@ -16,15 +16,15 @@ interface CartItem {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
+const RAZORPAY_KEY_ID = 'rzp_live_TYKZhqiKUBOWGD';
 
 export default function CartPage() {
   const router = useRouter();
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
-  // Delivery Address Fields
+  // Address
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [streetAddress, setStreetAddress] = useState('');
@@ -34,46 +34,53 @@ export default function CartPage() {
   const [stateName, setStateName] = useState('');
   const [pincode, setPincode] = useState('');
 
-  // Payment Selection
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'COD'>('UPI');
-  const [upiId, setUpiId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'COD'>('ONLINE');
 
-  const fetchCart = async () => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
+  const loadCartData = async () => {
     setLoading(true);
+    let loadedItems: CartItem[] = [];
+
+    // 1. सबसे पहले लोकल बैकअप से लोड करें ताकि कभी खाली न दिखे
     try {
-      const res = await fetch(`${API_BASE_URL}/api/cart/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setItems(data);
-        } else if (data.items) {
-          setItems(data.items);
-        } else {
-          setItems([]);
-        }
+      const localCart = localStorage.getItem('user_cart_items');
+      if (localCart) {
+        loadedItems = JSON.parse(localCart);
       }
-    } catch (err) {
-      console.error('Error fetching cart:', err);
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error(e);
     }
+
+    // 2. बैकएंड API से सिंक करने का प्रयास करें
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/cart/`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const apiItems = Array.isArray(data) ? data : data.items || [];
+          if (apiItems.length > 0) {
+            loadedItems = apiItems;
+            localStorage.setItem('user_cart_items', JSON.stringify(apiItems));
+          }
+        }
+      } catch (err) {
+        console.error('API Sync Error:', err);
+      }
+    }
+
+    setItems(loadedItems);
+    setLoading(false);
   };
 
   useEffect(() => {
-    fetchCart();
+    loadCartData();
 
-    const savedAddress = localStorage.getItem('user_shipping_address');
-    if (savedAddress) {
+    const savedAddr = localStorage.getItem('user_shipping_address');
+    if (savedAddr) {
       try {
-        const addr = JSON.parse(savedAddress);
+        const addr = JSON.parse(savedAddr);
         setFullName(addr.fullName || '');
         setPhone(addr.phone || '');
         setStreetAddress(addr.streetAddress || '');
@@ -82,174 +89,122 @@ export default function CartPage() {
         setDistrict(addr.district || '');
         setStateName(addr.stateName || '');
         setPincode(addr.pincode || '');
-      } catch {
-        // ignore
-      }
+      } catch {}
     } else {
-      const storedUser = localStorage.getItem('username');
-      const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
-      if (storedUser) setFullName(storedUser);
-      if (storedMobile) setPhone(storedMobile);
+      setFullName(localStorage.getItem('username') || '');
+      setPhone(localStorage.getItem('mobile') || '');
     }
   }, []);
 
-  const changeQuantity = async (productId: number, delta: number, currentQty: number) => {
-    const token = localStorage.getItem('access_token');
-    if (!token) return;
+  const updateQuantity = (productId: number, delta: number) => {
+    const updated = items
+      .map((item) => {
+        if (item.product.id === productId) {
+          const newQty = item.quantity + delta;
+          return newQty > 0 ? { ...item, quantity: newQty } : null;
+        }
+        return item;
+      })
+      .filter(Boolean) as CartItem[];
 
-    if (currentQty <= 1 && delta === -1) {
-      handleRemoveItem(productId);
-      return;
-    }
-
-    setActionLoadingId(productId);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ product_id: productId, quantity: delta }),
-      });
-
-      if (res.ok) {
-        await fetchCart();
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setActionLoadingId(null);
-    }
+    setItems(updated);
+    localStorage.setItem('user_cart_items', JSON.stringify(updated));
   };
 
-  const handleRemoveItem = async (productId: number) => {
-    const token = localStorage.getItem('access_token');
-    if (!token) return;
-
-    setActionLoadingId(productId);
-    try {
-      let res = await fetch(`${API_BASE_URL}/api/cart/remove/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ product_id: productId }),
-      });
-
-      if (!res.ok) {
-        res = await fetch(`${API_BASE_URL}/api/cart/delete/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ product_id: productId }),
-        });
-      }
-      await fetchCart();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setActionLoadingId(null);
-    }
+  const removeItem = (productId: number) => {
+    const updated = items.filter((item) => item.product.id !== productId);
+    setItems(updated);
+    localStorage.setItem('user_cart_items', JSON.stringify(updated));
   };
 
-  const handlePlaceOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      alert('कृपया पहले लॉगिन करें।');
-      router.push('/login');
-      return;
-    }
-
-    if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
-      alert('कृपया नाम, मोबाइल, पता, ज़िला, राज्य और पिनकोड भरें।');
-      return;
-    }
-
-    if (paymentMethod === 'UPI' && !upiId.trim()) {
-      alert('कृपया अपनी UPI ID (उदा: mobile@upi) दर्ज करें।');
-      return;
-    }
-
-    const fullAddressObj = {
-      fullName,
-      phone,
-      streetAddress,
-      postOffice,
-      city,
-      district,
-      stateName,
-      pincode,
-    };
-    localStorage.setItem('user_shipping_address', JSON.stringify(fullAddressObj));
-
-    const formattedShippingAddress = `${fullName}, Mob: ${phone}, ${streetAddress}, PO: ${postOffice || 'N/A'}, City: ${city || district}, Dist: ${district}, State: ${stateName} - ${pincode}`;
-
-    setSubmitting(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/orders/create/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          shipping_address: formattedShippingAddress,
-          payment_method: paymentMethod,
-          payment_details: paymentMethod === 'UPI' ? upiId : paymentMethod,
-        }),
-      });
-
-      if (res.ok) {
-        const orderData = await res.json();
-        // बैकएंड सिंक के साथ लोकल बैकअप बनाएँ ताकि पेज तुरंत ऑर्डर दिखाए
-        const existingLocalOrders = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
-        const newRecord = {
-          id: orderData.id || Date.now(),
-          created_at: new Date().toISOString(),
-          total_price: subtotal.toFixed(2),
-          status: paymentMethod === 'COD' ? 'Confirmed (COD)' : 'Paid Online',
-          shipping_address: formattedShippingAddress,
-          payment_method: paymentMethod,
-          items: items.map((i) => ({
-            id: i.id,
-            product_title: i.product?.title,
-            price: i.product?.price,
-            quantity: i.quantity,
-          })),
-        };
-        localStorage.setItem('user_local_orders', JSON.stringify([newRecord, ...existingLocalOrders]));
-
-        alert('ऑर्डर सफलतापूर्वक दर्ज किया गया! 🎉');
-        router.push('/orders');
-      } else {
-        const errorData = await res.json().catch(() => null);
-        alert(errorData?.error || 'ऑर्डर पूरा करने में समस्या आई।');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('सर्वर से संपर्क नहीं हो सका।');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const totalItemsCount = items.reduce((acc, item) => acc + item.quantity, 0);
-  const subtotal = items.reduce(
+  const totalAmount = items.reduce(
     (acc, item) => acc + parseFloat(item.product?.price || '0') * item.quantity,
     0
   );
+
+  const handlePlaceOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
+      alert('कृपया डिलीवरी का पूरा पता भरें।');
+      return;
+    }
+
+    const fullAddress = `${fullName}, Mob: ${phone}, ${streetAddress}, PO: ${postOffice || 'N/A'}, City: ${city || district}, Dist: ${district}, State: ${stateName} - ${pincode}`;
+    localStorage.setItem(
+      'user_shipping_address',
+      JSON.stringify({ fullName, phone, streetAddress, postOffice, city, district, stateName, pincode })
+    );
+
+    setSubmitting(true);
+
+    const finishOrder = (method: string, refId: string) => {
+      const localOrders = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
+      const newOrder = {
+        id: Date.now(),
+        created_at: new Date().toISOString(),
+        total_price: totalAmount.toFixed(2),
+        status: method === 'COD' ? 'Confirmed (COD)' : 'Paid (Online)',
+        shipping_address: fullAddress,
+        payment_method: method,
+        payment_id: refId,
+        items: items.map((i) => ({
+          id: i.id,
+          product_title: i.product?.title,
+          price: i.product?.price,
+          quantity: i.quantity,
+        })),
+      };
+      localStorage.setItem('user_local_orders', JSON.stringify([newOrder, ...localOrders]));
+      localStorage.removeItem('user_cart_items');
+      setItems([]);
+      alert('ऑर्डर सफलतापूर्वक दर्ज हो गया! 🎉');
+      router.push('/orders');
+    };
+
+    if (paymentMethod === 'COD') {
+      finishOrder('Cash on Delivery', 'COD_' + Date.now());
+      return;
+    }
+
+    // Razorpay Online
+    if (typeof window === 'undefined' || !(window as any).Razorpay) {
+      alert('Razorpay लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
+      setSubmitting(false);
+      return;
+    }
+
+    const options = {
+      key: RAZORPAY_KEY_ID,
+      amount: Math.round(totalAmount * 100),
+      currency: 'INR',
+      name: 'OrbisKart',
+      description: `Payment by ${fullName}`,
+      handler: function (response: any) {
+        finishOrder('Razorpay Online', response.razorpay_payment_id);
+      },
+      prefill: {
+        name: fullName,
+        contact: phone,
+        email: localStorage.getItem('email') || `${phone}@orbiskart.com`,
+      },
+      theme: { color: '#2563eb' },
+      modal: {
+        ondismiss: function () {
+          setSubmitting(false);
+        },
+      },
+    };
+
+    const rzp = new (window as any).Razorpay(options);
+    rzp.open();
+  };
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
-            MegaStore
+            OrbisKart
           </Link>
           <Link href="/" className="text-sm font-bold text-blue-600 hover:underline">
             ← Continue Shopping
@@ -258,7 +213,7 @@ export default function CartPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6">
-        <h1 className="text-xl font-black mb-6">Shopping Cart, Address & Payment</h1>
+        <h1 className="text-xl font-black mb-6">Shopping Cart & Secure Checkout</h1>
 
         {loading ? (
           <div className="text-center py-20 text-gray-500 font-bold">कार्ट लोड हो रहा है...</div>
@@ -266,10 +221,9 @@ export default function CartPage() {
           <div className="bg-white rounded-2xl p-12 text-center border shadow-xs max-w-md mx-auto">
             <span className="text-5xl block mb-3">🛒</span>
             <h2 className="text-lg font-bold text-gray-800">आपका कार्ट खाली है!</h2>
-            <p className="text-xs text-gray-500 mt-1 mb-5">स्टोर से अपने पसंदीदा उत्पाद जोड़ें।</p>
             <Link
               href="/"
-              className="bg-blue-600 text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-blue-700 transition"
+              className="mt-4 inline-block bg-blue-600 text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-blue-700"
             >
               Shop Now
             </Link>
@@ -277,21 +231,16 @@ export default function CartPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {/* Delivery Address Form */}
+              {/* Delivery Address */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
-                <div className="flex items-center justify-between mb-4 border-b pb-2">
-                  <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider flex items-center gap-2">
-                    <span>📍</span> 1. Delivery Address (शिपिंग का पूरा पता)
-                  </h2>
-                  <span className="text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded">Auto-Saved</span>
-                </div>
-
+                <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4 flex items-center gap-2 border-b pb-2">
+                  <span>📍</span> 1. Delivery Address (डिलीवरी का पूरा पता)
+                </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Full Name (पूरा नाम) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Full Name *</label>
                     <input
                       type="text"
-                      placeholder="Receiver's name"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -299,80 +248,67 @@ export default function CartPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Mobile Number (मोबाइल नंबर) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Mobile Number *</label>
                     <input
                       type="text"
-                      placeholder="10-digit mobile number"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                       required
                     />
                   </div>
-
                   <div className="sm:col-span-2">
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Flat / House No. / Village / Landmark *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Street / House / Landmark *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Near Shiv Mandir, Main Road"
                       value={streetAddress}
                       onChange={(e) => setStreetAddress(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                       required
                     />
                   </div>
-
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Post Office (डाकघर)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Post Office</label>
                     <input
                       type="text"
-                      placeholder="Post Office name"
                       value={postOffice}
                       onChange={(e) => setPostOffice(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
-
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">City / Town (शहर)</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">City / Town</label>
                     <input
                       type="text"
-                      placeholder="City or Town"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
-
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">District (ज़िला) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">District *</label>
                     <input
                       type="text"
-                      placeholder="District"
                       value={district}
                       onChange={(e) => setDistrict(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                       required
                     />
                   </div>
-
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">State (राज्य) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">State *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Jharkhand, Bihar, UP..."
                       value={stateName}
                       onChange={(e) => setStateName(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                       required
                     />
                   </div>
-
                   <div>
-                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Pincode (पिन कोड) *</label>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Pincode *</label>
                     <input
                       type="text"
-                      placeholder="6-digit pincode"
                       value={pincode}
                       onChange={(e) => setPincode(e.target.value)}
                       className="w-full text-xs p-2.5 border rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -382,64 +318,36 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Payment Options Selection */}
+              {/* Payment Methods */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2 border-b pb-2">
-                  <span>💳</span> 2. Select Payment Option (भुगतान का तरीका)
+                  <span>💳</span> 2. Payment Method
                 </h2>
-
                 <div className="space-y-3">
-                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'UPI' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'ONLINE' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
                     <div className="flex items-center gap-3">
                       <input
                         type="radio"
-                        name="payment"
-                        checked={paymentMethod === 'UPI'}
-                        onChange={() => setPaymentMethod('UPI')}
+                        name="pay"
+                        checked={paymentMethod === 'ONLINE'}
+                        onChange={() => setPaymentMethod('ONLINE')}
                         className="w-4 h-4 text-blue-600"
                       />
                       <div>
-                        <span className="text-xs font-bold text-gray-900 block">UPI (PhonePe, Google Pay, Paytm, BHIM)</span>
-                        <span className="text-[10px] text-gray-500">Fast & Secure UPI payment</span>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          Online Payment (UPI, Google Pay, PhonePe, Cards, NetBanking)
+                        </span>
+                        <span className="text-[10px] text-emerald-600 font-semibold">⚡ Powered by Razorpay</span>
                       </div>
                     </div>
-                    <span className="text-base">⚡</span>
-                  </label>
-
-                  {paymentMethod === 'UPI' && (
-                    <div className="pl-7 pr-2 pb-1">
-                      <input
-                        type="text"
-                        placeholder="Enter UPI ID (e.g. mobile@upi / yourname@okaxis)"
-                        value={upiId}
-                        onChange={(e) => setUpiId(e.target.value)}
-                        className="w-full text-xs p-2.5 border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  )}
-
-                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'CARD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="payment"
-                        checked={paymentMethod === 'CARD'}
-                        onChange={() => setPaymentMethod('CARD')}
-                        className="w-4 h-4 text-blue-600"
-                      />
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block">Credit / Debit / ATM Card</span>
-                        <span className="text-[10px] text-gray-500">Visa, MasterCard, RuPay</span>
-                      </div>
-                    </div>
-                    <span className="text-base">💳</span>
+                    <span className="text-xs font-bold text-blue-600">Razorpay</span>
                   </label>
 
                   <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'COD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
                     <div className="flex items-center gap-3">
                       <input
                         type="radio"
-                        name="payment"
+                        name="pay"
                         checked={paymentMethod === 'COD'}
                         onChange={() => setPaymentMethod('COD')}
                         className="w-4 h-4 text-blue-600"
@@ -457,105 +365,60 @@ export default function CartPage() {
               {/* Cart Items List */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <span>🛍️</span> 3. Review Items ({items.length} Product{items.length > 1 ? 's' : ''})
+                  <span>🛍️</span> 3. Cart Items ({items.length})
                 </h2>
-                {items.map((item) => {
-                  const img = item.product?.image
-                    ? item.product.image.startsWith('http')
-                      ? item.product.image
-                      : `${API_BASE_URL}${item.product.image}`
-                    : null;
-
-                  const isBusy = actionLoadingId === item.product?.id;
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border flex-shrink-0">
-                          {img ? (
-                            <img src={img} alt={item.product?.title || 'Product'} className="w-full h-full object-contain" />
-                          ) : (
-                            <span className="text-[10px] text-gray-400">No Img</span>
-                          )}
-                        </div>
-                        <div>
-                          <h3 className="text-xs font-bold text-gray-800 line-clamp-1">{item.product?.title}</h3>
-                          <span className="text-xs font-black text-gray-900 block mt-1">₹{item.product?.price}</span>
-                        </div>
+                {items.map((item) => (
+                  <div key={item.product.id} className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border flex-shrink-0">
+                        {item.product.image ? (
+                          <img src={item.product.image} alt={item.product.title} className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <span className="text-[10px] text-gray-400">No Img</span>
+                        )}
                       </div>
-
-                      <div className="flex items-center justify-between sm:justify-end gap-3">
-                        <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
-                          <button
-                            onClick={() => changeQuantity(item.product.id, -1, item.quantity)}
-                            disabled={isBusy}
-                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
-                          >
-                            -
-                          </button>
-                          <span className="text-xs font-black px-2.5 min-w-[24px] text-center">
-                            {isBusy ? '...' : item.quantity}
-                          </span>
-                          <button
-                            onClick={() => changeQuantity(item.product.id, 1, item.quantity)}
-                            disabled={isBusy}
-                            className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 disabled:opacity-50 cursor-pointer flex items-center justify-center text-sm"
-                          >
-                            +
-                          </button>
-                        </div>
-
-                        <button
-                          onClick={() => handleRemoveItem(item.product.id)}
-                          disabled={isBusy}
-                          className="text-xs text-red-600 hover:text-red-800 font-bold flex items-center gap-1 border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer"
-                        >
-                          🗑️ Remove
-                        </button>
+                      <div>
+                        <h3 className="text-xs font-bold text-gray-800">{item.product.title}</h3>
+                        <span className="text-xs font-black text-gray-900 block mt-1">₹{item.product.price}</span>
                       </div>
                     </div>
-                  );
-                })}
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
+                        <button onClick={() => updateQuantity(item.product.id, -1)} className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm">-</button>
+                        <span className="text-xs font-black px-2.5">{item.quantity}</span>
+                        <button onClick={() => updateQuantity(item.product.id, 1)} className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm">+</button>
+                      </div>
+                      <button onClick={() => removeItem(item.product.id)} className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100">🗑️ Remove</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Price Summary */}
+            {/* Price Details */}
             <div className="lg:col-span-1">
               <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
                 <div className="space-y-3 text-xs border-b pb-4">
                   <div className="flex justify-between text-gray-600">
-                    <span>Total Quantity</span>
-                    <span>{totalItemsCount}</span>
+                    <span>Items Total</span>
+                    <span>₹{totalAmount.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
-                    <span>Price</span>
-                    <span>₹{subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600">
-                    <span>Delivery Charges</span>
+                    <span>Delivery</span>
                     <span className="text-emerald-600 font-bold">FREE</span>
                   </div>
-                  <div className="flex justify-between text-gray-600">
-                    <span>Payment Mode</span>
-                    <span className="font-bold text-blue-600">{paymentMethod}</span>
-                  </div>
                 </div>
-
                 <div className="flex justify-between font-black text-sm pt-4 mb-5">
                   <span>Total Amount</span>
-                  <span className="text-blue-600">₹{subtotal.toFixed(2)}</span>
+                  <span className="text-blue-600">₹{totalAmount.toFixed(2)}</span>
                 </div>
-
                 <button
                   onClick={handlePlaceOrder}
                   disabled={submitting}
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3 rounded-xl transition shadow-xs cursor-pointer disabled:bg-gray-300 uppercase tracking-wider"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
                 >
-                  {submitting ? 'Processing Order...' : `Pay & Place Order ⚡ (₹${subtotal.toFixed(2)})`}
+                  {submitting ? 'Processing...' : paymentMethod === 'ONLINE' ? `Pay ₹${totalAmount.toFixed(2)} via Razorpay ⚡` : 'Place Order ⚡ (COD)'}
                 </button>
               </div>
             </div>

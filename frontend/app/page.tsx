@@ -197,42 +197,52 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [search, selectedCategory, sortBy, filterType]);
 
-  const handleAddToCart = async (productId: number, redirectToCart = false) => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      alert('कृपया पहले लॉगिन करें।');
-      router.push('/login');
-      return;
+  const handleAddToCart = async (product: Product, redirectToCart = false) => {
+    // 1. तुरंत लोकल स्टोरेज में कार्ट अपडेट करें (ताकि कार्ट कभी खाली न रहे)
+    const existingCart: any[] = JSON.parse(localStorage.getItem('user_cart_items') || '[]');
+    const existingIndex = existingCart.findIndex((i: any) => i.product.id === product.id);
+
+    if (existingIndex > -1) {
+      existingCart[existingIndex].quantity += 1;
+    } else {
+      existingCart.push({
+        id: Date.now(),
+        product: {
+          id: product.id,
+          title: product.title,
+          price: product.price,
+          image: product.image
+            ? product.image.startsWith('http')
+              ? product.image
+              : `${API_BASE_URL}${product.image}`
+            : null,
+        },
+        quantity: 1,
+      });
     }
 
-    setAddingId(productId);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/cart/add/`, {
+    localStorage.setItem('user_cart_items', JSON.stringify(existingCart));
+    setCartCount(existingCart.reduce((sum, item) => sum + item.quantity, 0));
+
+    // 2. बैकएंड API को बैकग्राउंड में भेजें
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      fetch(`${API_BASE_URL}/api/cart/add/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ product_id: productId, quantity: 1 }),
-      });
+        body: JSON.stringify({ product_id: product.id, quantity: 1 }),
+      }).catch(() => null);
+    }
 
-      if (res.ok) {
-        setCartCount((prev) => prev + 1);
-        if (redirectToCart) {
-          router.push('/cart');
-        } else {
-          alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
-        }
-      } else {
-        alert('कार्ट में जोड़ने में विफल।');
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingId(null);
+    if (redirectToCart) {
+      router.push('/cart');
+    } else {
+      alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
     }
   };
-
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
       {/* Header with OrbisKart Branding */}
@@ -539,17 +549,19 @@ export default function HomePage() {
                     </div>
 
                     <div className="flex gap-1.5 sm:gap-2">
-                      <button
-                        onClick={() => handleAddToCart(product.id, false)}
-                        disabled={addingId === product.id}
-                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
-                      >
-                        {addingId === product.id ? '...' : 'Add to Cart 🛒'}
-                      </button>
+                     <button
+  onClick={() => handleAddToCart(product, false)}
+  className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
+>
+  Add to Cart 🛒
+</button>
 
-                      <button
-                        onClick={() => handleAddToCart(product.id, true)}
-                        disabled={addingId === product.id}
+<button
+  onClick={() => handleAddToCart(product, true)}
+  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
+>
+  ⚡ Buy Now
+</button>
                         className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
                       >
                         ⚡ Buy Now
