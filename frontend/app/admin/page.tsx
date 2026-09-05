@@ -51,7 +51,7 @@ export default function AdminAuditPortal() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                एडमिन सुरक्षा की (Passcode)
+                एडमिन पासकोड
               </label>
               <input
                 type="password"
@@ -107,7 +107,7 @@ export default function AdminAuditPortal() {
             <p className="text-2xl font-bold text-white mt-1">{ledgers.length}</p>
           </div>
           <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-            <span className="text-xs text-slate-400 uppercase font-semibold">कुल ग्रॉस वॉल्यूम</span>
+            <span className="text-xs text-slate-400 uppercase font-semibold">कुल ग्रॉस राशि</span>
             <p className="text-2xl font-bold text-emerald-400 mt-1">
               ₹{ledgers.reduce((acc, row) => acc + Number(row.gross_amount || 0), 0).toFixed(2)}
             </p>
@@ -130,18 +130,18 @@ export default function AdminAuditPortal() {
           {loading ? (
             <div className="p-12 text-center text-slate-400">डेटा लोड हो रहा है...</div>
           ) : ledgers.length === 0 ? (
-            <div className="p-12 text-center text-slate-500">अभी कोई ऑडिट रिकॉर्ड नहीं है।</div>
+            <div className="p-12 text-center text-slate-500">अभी कोई ऑडिट रिकॉर्ड दर्ज नहीं है।</div>
           ) : (
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
                   <th className="p-3">तारीख / ID</th>
-                  <th className="p-3">ग्राहक विवरण</th>
+                  <th className="p-3">ग्राहक</th>
                   <th className="p-3 text-right">ग्रॉस राशि</th>
                   <th className="p-3 text-right">गेटवे फ़ी (2%)</th>
-                  <th className="p-3 text-right">प्लेटफ़ॉर्म (3%)</th>
-                  <th className="p-3 text-right">शिपिंग फ़ी</th>
-                  <th className="p-3 text-right">GST (18%)</th>
+                  <th className="p-3 text-right">प्लेटफ़ॉर्म फ़ी (3%)</th>
+                  <th className="p-3 text-right">शिपिंग</th>
+                  <th className="p-3 text-right">GST</th>
                   <th className="p-3 text-right font-bold text-emerald-400">नेट पेआउट</th>
                   <th className="p-3">AWB / OTP</th>
                   <th className="p-3 text-center">स्थिति</th>
