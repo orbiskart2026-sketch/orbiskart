@@ -16,7 +16,7 @@ interface CartItem {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
-const RAZORPAY_KEY_ID = 'rzp_live_TYKZhqiKUBOWGD';
+const RAZORPAY_KEY_ID = 'rzp_live_TYKZhqjKUBOWGD';
 
 export default function CartPage() {
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Address
+  // Delivery Address State
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [streetAddress, setStreetAddress] = useState('');
@@ -34,12 +34,14 @@ export default function CartPage() {
   const [stateName, setStateName] = useState('');
   const [pincode, setPincode] = useState('');
 
+  // Payment Selection
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'COD'>('ONLINE');
 
   const loadCartData = async () => {
     setLoading(true);
     let loadedItems: CartItem[] = [];
 
+    // 1. लोकल स्टोरेज से कार्ट रिकवर करें
     try {
       const localCart = localStorage.getItem('user_cart_items');
       if (localCart) {
@@ -49,6 +51,7 @@ export default function CartPage() {
       console.error(e);
     }
 
+    // 2. बैकएंड से सिंक करने का प्रयास
     const token = localStorage.getItem('access_token');
     if (token) {
       try {
@@ -148,7 +151,7 @@ export default function CartPage() {
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
-      alert('कृपया डिलीवरी का पूरा पता भरें।');
+      alert('कृपया पूरा डिलीवरी पता भरें।');
       return;
     }
 
@@ -159,13 +162,13 @@ export default function CartPage() {
 
     setSubmitting(true);
 
-    // COD Option
+    // 1. Cash on Delivery (COD)
     if (paymentMethod === 'COD') {
       finishOrder('Cash on Delivery', 'COD_' + Date.now());
       return;
     }
 
-    // Razorpay Online
+    // 2. Razorpay Online
     if (typeof window === 'undefined' || !(window as any).Razorpay) {
       alert('Razorpay लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
       setSubmitting(false);
@@ -221,6 +224,7 @@ export default function CartPage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
+      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
@@ -421,21 +425,21 @@ export default function CartPage() {
                       <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
                         <button
                           onClick={() => updateQuantity(item.product.id, -1)}
-                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm"
+                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm cursor-pointer"
                         >
                           -
                         </button>
                         <span className="text-xs font-black px-2.5">{item.quantity}</span>
                         <button
                           onClick={() => updateQuantity(item.product.id, 1)}
-                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm"
+                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm cursor-pointer"
                         >
                           +
                         </button>
                       </div>
                       <button
                         onClick={() => removeItem(item.product.id)}
-                        className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100"
+                        className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 cursor-pointer"
                       >
                         🗑️ Remove
                       </button>
