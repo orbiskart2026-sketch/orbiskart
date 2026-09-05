@@ -40,7 +40,6 @@ export default function CartPage() {
     setLoading(true);
     let loadedItems: CartItem[] = [];
 
-    // 1. सबसे पहले लोकल बैकअप से लोड करें ताकि कभी खाली न दिखे
     try {
       const localCart = localStorage.getItem('user_cart_items');
       if (localCart) {
@@ -50,7 +49,6 @@ export default function CartPage() {
       console.error(e);
     }
 
-    // 2. बैकएंड API से सिंक करने का प्रयास करें
     const token = localStorage.getItem('access_token');
     if (token) {
       try {
@@ -122,14 +120,38 @@ export default function CartPage() {
     0
   );
 
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const finishOrder = (method: string, refId: string) => {
+    const fullAddress = `${fullName}, Mob: ${phone}, ${streetAddress}, PO: ${postOffice || 'N/A'}, City: ${city || district}, Dist: ${district}, State: ${stateName} - ${pincode}`;
+    const localOrders = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
+    const newOrder = {
+      id: Date.now(),
+      created_at: new Date().toISOString(),
+      total_price: totalAmount.toFixed(2),
+      status: method === 'Cash on Delivery' ? 'Confirmed (COD)' : 'Paid (Online)',
+      shipping_address: fullAddress,
+      payment_method: method,
+      payment_id: refId,
+      items: items.map((i) => ({
+        id: i.id,
+        product_title: i.product?.title,
+        price: i.product?.price,
+        quantity: i.quantity,
+      })),
+    };
+    localStorage.setItem('user_local_orders', JSON.stringify([newOrder, ...localOrders]));
+    localStorage.removeItem('user_cart_items');
+    setItems([]);
+    alert('ऑर्डर सफलतापूर्वक दर्ज हो गया! 🎉');
+    router.push('/orders');
+  };
+
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
       alert('कृपया डिलीवरी का पूरा पता भरें।');
       return;
     }
 
-    const fullAddress = `${fullName}, Mob: ${phone}, ${streetAddress}, PO: ${postOffice || 'N/A'}, City: ${city || district}, Dist: ${district}, State: ${stateName} - ${pincode}`;
     localStorage.setItem(
       'user_shipping_address',
       JSON.stringify({ fullName, phone, streetAddress, postOffice, city, district, stateName, pincode })
@@ -137,30 +159,7 @@ export default function CartPage() {
 
     setSubmitting(true);
 
-    const finishOrder = (method: string, refId: string) => {
-      const localOrders = JSON.parse(localStorage.getItem('user_local_orders') || '[]');
-      const newOrder = {
-        id: Date.now(),
-        created_at: new Date().toISOString(),
-        total_price: totalAmount.toFixed(2),
-        status: method === 'COD' ? 'Confirmed (COD)' : 'Paid (Online)',
-        shipping_address: fullAddress,
-        payment_method: method,
-        payment_id: refId,
-        items: items.map((i) => ({
-          id: i.id,
-          product_title: i.product?.title,
-          price: i.product?.price,
-          quantity: i.quantity,
-        })),
-      };
-      localStorage.setItem('user_local_orders', JSON.stringify([newOrder, ...localOrders]));
-      localStorage.removeItem('user_cart_items');
-      setItems([]);
-      alert('ऑर्डर सफलतापूर्वक दर्ज हो गया! 🎉');
-      router.push('/orders');
-    };
-
+    // COD Option
     if (paymentMethod === 'COD') {
       finishOrder('Cash on Delivery', 'COD_' + Date.now());
       return;
@@ -173,30 +172,51 @@ export default function CartPage() {
       return;
     }
 
-    const options = {
-      key: RAZORPAY_KEY_ID,
-      amount: Math.round(totalAmount * 100),
-      currency: 'INR',
-      name: 'OrbisKart',
-      description: `Payment by ${fullName}`,
-      handler: function (response: any) {
-        finishOrder('Razorpay Online', response.razorpay_payment_id);
-      },
-      prefill: {
-        name: fullName,
-        contact: phone,
-        email: localStorage.getItem('email') || `${phone}@orbiskart.com`,
-      },
-      theme: { color: '#2563eb' },
-      modal: {
-        ondismiss: function () {
-          setSubmitting(false);
-        },
-      },
-    };
+    try {
+      const orderRes = await fetch('/api/razorpay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: totalAmount }),
+      });
 
-    const rzp = new (window as any).Razorpay(options);
-    rzp.open();
+      const orderData = await orderRes.json();
+
+      if (!orderRes.ok || !orderData.id) {
+        alert(orderData.error || 'पेमेंट इनिशियलाइज़ नहीं हो सका।');
+        setSubmitting(false);
+        return;
+      }
+
+      const options = {
+        key: RAZORPAY_KEY_ID,
+        amount: orderData.amount,
+        currency: 'INR',
+        name: 'OrbisKart',
+        description: `Order Payment by ${fullName}`,
+        order_id: orderData.id,
+        handler: function (response: any) {
+          finishOrder('Razorpay Online', response.razorpay_payment_id);
+        },
+        prefill: {
+          name: fullName,
+          contact: phone,
+          email: localStorage.getItem('email') || `${phone}@orbiskart.com`,
+        },
+        theme: { color: '#2563eb' },
+        modal: {
+          ondismiss: function () {
+            setSubmitting(false);
+          },
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error(err);
+      alert('पेमेंट शुरू करने में समस्या आई।');
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -318,13 +338,17 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Payment Methods */}
+              {/* Payment Method */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2 border-b pb-2">
                   <span>💳</span> 2. Payment Method
                 </h2>
                 <div className="space-y-3">
-                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'ONLINE' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                  <label
+                    className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${
+                      paymentMethod === 'ONLINE' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <div className="flex items-center gap-3">
                       <input
                         type="radio"
@@ -343,7 +367,11 @@ export default function CartPage() {
                     <span className="text-xs font-bold text-blue-600">Razorpay</span>
                   </label>
 
-                  <label className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${paymentMethod === 'COD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'}`}>
+                  <label
+                    className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition ${
+                      paymentMethod === 'COD' ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-500' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <div className="flex items-center gap-3">
                       <input
                         type="radio"
@@ -368,11 +396,18 @@ export default function CartPage() {
                   <span>🛍️</span> 3. Cart Items ({items.length})
                 </h2>
                 {items.map((item) => (
-                  <div key={item.product.id} className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4">
+                  <div
+                    key={item.product.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-b-0 last:pb-0 gap-4"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-16 h-16 bg-gray-50 rounded-lg flex items-center justify-center overflow-hidden border flex-shrink-0">
                         {item.product.image ? (
-                          <img src={item.product.image} alt={item.product.title} className="w-full h-full object-contain p-1" />
+                          <img
+                            src={item.product.image}
+                            alt={item.product.title}
+                            className="w-full h-full object-contain p-1"
+                          />
                         ) : (
                           <span className="text-[10px] text-gray-400">No Img</span>
                         )}
@@ -384,18 +419,33 @@ export default function CartPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1 border rounded-lg p-1 bg-gray-50">
-                        <button onClick={() => updateQuantity(item.product.id, -1)} className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm">-</button>
+                        <button
+                          onClick={() => updateQuantity(item.product.id, -1)}
+                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm"
+                        >
+                          -
+                        </button>
                         <span className="text-xs font-black px-2.5">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.product.id, 1)} className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm">+</button>
+                        <button
+                          onClick={() => updateQuantity(item.product.id, 1)}
+                          className="w-7 h-7 rounded bg-white border font-bold text-gray-700 hover:bg-gray-100 flex items-center justify-center text-sm"
+                        >
+                          +
+                        </button>
                       </div>
-                      <button onClick={() => removeItem(item.product.id)} className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100">🗑️ Remove</button>
+                      <button
+                        onClick={() => removeItem(item.product.id)}
+                        className="text-xs text-red-600 hover:text-red-800 font-bold border border-red-200 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100"
+                      >
+                        🗑️ Remove
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Price Details */}
+            {/* Price Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
@@ -418,7 +468,11 @@ export default function CartPage() {
                   disabled={submitting}
                   className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-3.5 rounded-xl transition shadow-xs cursor-pointer uppercase tracking-wider"
                 >
-                  {submitting ? 'Processing...' : paymentMethod === 'ONLINE' ? `Pay ₹${totalAmount.toFixed(2)} via Razorpay ⚡` : 'Place Order ⚡ (COD)'}
+                  {submitting
+                    ? 'Processing...'
+                    : paymentMethod === 'ONLINE'
+                    ? `Pay ₹${totalAmount.toFixed(2)} via Razorpay ⚡`
+                    : 'Place Order ⚡ (COD)'}
                 </button>
               </div>
             </div>
