@@ -51,7 +51,7 @@ export default function AdminAuditPortal() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                एडमिन सुरक्षा की (Passcode)
+                एडमिन सुरक्षा पासकोड
               </label>
               <input
                 type="password"
