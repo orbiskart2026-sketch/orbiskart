@@ -3,10 +3,6 @@
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 export default function AdminAuditPortal() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
@@ -15,6 +11,12 @@ export default function AdminAuditPortal() {
   const [loading, setLoading] = useState(false);
 
   const ADMIN_PASSCODE = 'OrbisKart@Audit2026';
+
+  const getSupabaseClient = () => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+    return createClient(url, key);
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,13 +31,18 @@ export default function AdminAuditPortal() {
 
   const fetchLedgerData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('audit_ledgers')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from('audit_ledgers')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (!error) {
-      setLedgers(data || []);
+      if (!error && data) {
+        setLedgers(data);
+      }
+    } catch (err) {
+      console.error(err);
     }
     setLoading(false);
   };
