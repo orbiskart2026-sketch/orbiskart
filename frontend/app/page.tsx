@@ -590,7 +590,34 @@ export default function HomePage() {
             })}
           </div>
         )}
-      </main>
+      </main>{/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-1.5 flex items-center justify-around z-50 md:hidden shadow-lg">
+        <Link href="/" className="flex flex-col items-center py-1 flex-1">
+          <span className="text-base text-blue-600">🏠</span>
+          <span className="text-[10px] font-bold text-blue-600">Home</span>
+        </Link>
+        <button onClick={() => setFilterType('trending')} className="flex flex-col items-center py-1 flex-1">
+          <span className="text-base text-gray-500">🔥</span>
+          <span className="text-[10px] font-medium text-gray-500">Right Now</span>
+        </button>
+        <Link href="/cart" className="flex flex-col items-center py-1 relative flex-1">
+          <span className="text-base text-gray-500">🛒</span>
+          <span className="text-[10px] font-medium text-gray-500">Cart</span>
+          {cartCount > 0 && (
+            <span className="absolute top-0 right-4 bg-red-500 text-white text-[9px] font-black rounded-full h-4 w-4 flex items-center justify-center">
+              {cartCount}
+            </span>
+          )}
+        </Link>
+        <Link href="/orders" className="flex flex-col items-center py-1 flex-1">
+          <span className="text-base text-gray-500">📦</span>
+          <span className="text-[10px] font-medium text-gray-500">Orders</span>
+        </Link>
+        <Link href="/account" className="flex flex-col items-center py-1 flex-1">
+          <span className="text-base text-gray-500">👤</span>
+          <span className="text-[10px] font-medium text-gray-500">Account</span>
+        </Link>
+      </nav>
     </div>
   );
 }
