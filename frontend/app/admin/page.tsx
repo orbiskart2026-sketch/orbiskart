@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const getSupabase = () => {
@@ -11,9 +11,10 @@ const getSupabase = () => {
 
 export default function UnifiedMasterAdmin() {
   const [auth, setAuth] = useState(false);
-  const [pass, setPass] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [tab, setTab] = useState<'audit' | 'sellers' | 'orders' | 'charges'>('audit');
-  const [loading, setLoading] = useState(false);
 
   // डेटा स्टेट्स
   const [ledgers, setLedgers] = useState<any[]>([]);
@@ -35,7 +36,6 @@ export default function UnifiedMasterAdmin() {
     }
   ]);
 
-  // शुल्क सेटिंग्स स्टेट
   const [config, setConfig] = useState({
     platform_fee_percent: 3.0,
     gateway_fee_percent: 2.0,
@@ -44,20 +44,22 @@ export default function UnifiedMasterAdmin() {
     return_penalty: 70.0
   });
 
-  const ADMIN_PASSCODE = 'OrbisKart@Audit2026';
+  // एडमिन क्रेडेंशियल्स
+  const ADMIN_USER = 'admin';
+  const ADMIN_PASS = 'OrbisKart@Audit2026';
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pass === ADMIN_PASSCODE) {
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
       setAuth(true);
+      setError('');
       fetchLedger();
     } else {
-      alert('गलत पासकोड! पुनः प्रयास करें।');
+      setError('अमान्य यूज़रनेम या पासवर्ड! कृपया सही विवरण दर्ज करें।');
     }
   };
 
   const fetchLedger = async () => {
-    setLoading(true);
     try {
       const supabase = getSupabase();
       const { data } = await supabase.from('audit_ledgers').select('*').order('created_at', { ascending: false });
@@ -65,14 +67,12 @@ export default function UnifiedMasterAdmin() {
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
   };
 
   const toggleSellerApproval = (id: string, newStatus: string) => {
     setSellers(sellers.map(s => s.id === id ? { ...s, status: newStatus } : s));
   };
 
-  // कुल P&L गणना
   const totalGross = ledgers.reduce((a, b) => a + Number(b.gross_amount || 0), 0);
   const totalPlatformEarned = ledgers.reduce((a, b) => a + Number(b.platform_fee || 0), 0);
   const totalGST = ledgers.reduce((a, b) => a + Number(b.gst_tax || 0), 0);
@@ -82,23 +82,49 @@ export default function UnifiedMasterAdmin() {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-          <h2 className="text-2xl font-bold text-center text-white">OrbisKart Master Admin</h2>
-          <p className="text-slate-400 text-xs text-center mt-1">Multi-Vendor • KYC • Logistics • Audit Ledger</p>
-          <form onSubmit={handleLogin} className="mt-6 space-y-4">
+          <div className="text-center mb-6">
+            <h2 className="text-2xl font-bold text-white tracking-wide">OrbisKart Master Admin</h2>
+            <p className="text-slate-400 text-xs mt-1">Multi-Vendor • KYC • Logistics • Audit Ledger</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-xs text-slate-300 font-semibold block mb-1">सुरक्षा पासकोड</label>
+              <label className="text-xs text-slate-300 font-semibold block mb-1 uppercase tracking-wider">
+                एडमिन लॉगिन आईडी (Username)
+              </label>
               <input
-                type="password"
-                value={pass}
-                onChange={(e) => setPass(e.target.value)}
-                placeholder="OrbisKart@Audit2026"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
                 className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                required
               />
             </div>
-            <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition">
+            <div>
+              <label className="text-xs text-slate-300 font-semibold block mb-1 uppercase tracking-wider">
+                पासवर्ड (Password)
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                required
+              />
+            </div>
+            {error && <p className="text-red-400 text-xs font-medium">{error}</p>}
+            <button
+              type="submit"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30"
+            >
               मास्टर एडमिन पैनल खोलें
             </button>
           </form>
+          <div className="mt-6 p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] text-slate-400">
+            <div>डिफ़ॉल्ट ID: <span className="text-white font-mono font-semibold">admin</span></div>
+            <div>डिफ़ॉल्ट पासवर्ड: <span className="text-white font-mono font-semibold">OrbisKart@Audit2026</span></div>
+          </div>
         </div>
       </div>
     );
@@ -106,7 +132,6 @@ export default function UnifiedMasterAdmin() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      {/* शीर्ष पट्टी */}
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
         <div>
           <h1 className="text-xl font-bold text-white tracking-wide">OrbisKart Control Center</h1>
@@ -127,7 +152,6 @@ export default function UnifiedMasterAdmin() {
         </div>
       </header>
 
-      {/* नेविगेशन टैब्स */}
       <div className="bg-slate-900/60 border-b border-slate-800 px-6 flex gap-6 text-sm font-semibold">
         <button
           onClick={() => setTab('audit')}
@@ -156,16 +180,15 @@ export default function UnifiedMasterAdmin() {
       </div>
 
       <main className="p-6 max-w-7xl mx-auto space-y-6">
-        {/* टैब 1: वित्तीय ऑडिट व P&L */}
         {tab === 'audit' && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400 uppercase font-bold">सकल बिक्री (Gross Sales)</div>
+                <div className="text-xs text-slate-400 uppercase font-bold">सकल बिक्री</div>
                 <div className="text-2xl font-bold text-white mt-1">₹{totalGross.toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400 uppercase font-bold">प्लेटफ़ॉर्म लाभ (Net Commission)</div>
+                <div className="text-xs text-slate-400 uppercase font-bold">प्लेटफ़ॉर्म लाभ</div>
                 <div className="text-2xl font-bold text-emerald-400 mt-1">₹{totalPlatformEarned.toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
@@ -221,7 +244,6 @@ export default function UnifiedMasterAdmin() {
           </div>
         )}
 
-        {/* टैब 2: सेलर अनुमोदन एवं KYC */}
         {tab === 'sellers' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto p-4">
             <h3 className="text-base font-bold text-white mb-4">विक्रेता ऑनबोर्डिंग एवं दस्तावेज़ सत्यापन (KYC)</h3>
@@ -261,7 +283,7 @@ export default function UnifiedMasterAdmin() {
                         Mobile OTP: OK
                       </span>
                       <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px] block w-fit">
-                        Aadhaar e-KYC: OK
+                        e-KYC: OK
                       </span>
                     </td>
                     <td className="p-3 font-bold text-indigo-400">{s.commission_rate}%</td>
@@ -289,12 +311,10 @@ export default function UnifiedMasterAdmin() {
           </div>
         )}
 
-        {/* टैब 3: कूरियर एवं रिटर्न ट्रैकिंग */}
         {tab === 'orders' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
             <h3 className="text-base font-bold text-white mb-2">लॉजिस्टिक्स, AWB एवं रिटर्न कूरियर ऑडिट</h3>
-            <p className="text-xs text-slate-400 mb-6">कूरियर डिलीवरी OTP व रिटर्न पैकेट (RTO) की ट्रैकिंग</p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400">सक्रिय कूरियर पार्टनर</div>
                 <div className="text-lg font-bold text-white mt-1">Delhivery / Shiprocket</div>
@@ -314,10 +334,9 @@ export default function UnifiedMasterAdmin() {
           </div>
         )}
 
-        {/* टैब 4: प्लेटफ़ॉर्म व शुल्क सेटिंग्स */}
         {tab === 'charges' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-2xl">
-            <h3 className="text-base font-bold text-white mb-4">कमीशन, कूरियर व कर नीतियां (Automated Rules)</h3>
+            <h3 className="text-base font-bold text-white mb-4">कमीशन, कूरियर व कर नीतियां</h3>
             <div className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold">मार्केटप्लेस कमीशन दर (%)</label>
