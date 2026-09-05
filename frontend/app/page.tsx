@@ -22,7 +22,6 @@ interface Product {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
-// Flipkart / Amazon / Ajio / Myntra स्टाइल पूरी कैटेगरी लिस्ट (Fashion, Sarees & Suits, Jewellery सहित)
 const DEFAULT_TOP_CATEGORIES = [
   { key: 'all', name: 'All Store', icon: '🛍️' },
   { key: 'fashion', name: 'Fashion', icon: '👗' },
@@ -303,10 +302,9 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Categories Bar with Left & Right Arrows (Sarees, Suits, Jewellery Added) */}
+        {/* Categories Bar with Left & Right Arrows */}
         <div className="bg-white border-t border-gray-100 relative">
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
-            {/* Left Scroll Arrow */}
             <button
               onClick={() => scrollCategories('left')}
               className="p-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full flex-shrink-0 cursor-pointer font-bold text-base"
@@ -315,7 +313,6 @@ export default function HomePage() {
               ❮
             </button>
 
-            {/* Scrollable Container */}
             <div
               ref={categoryScrollRef}
               className="flex items-center space-x-4 sm:space-x-6 overflow-x-auto no-scrollbar scroll-smooth py-1 px-2 mx-1 flex-1"
@@ -383,7 +380,6 @@ export default function HomePage() {
               })}
             </div>
 
-            {/* Right Scroll Arrow */}
             <button
               onClick={() => scrollCategories('right')}
               className="p-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full flex-shrink-0 cursor-pointer font-bold text-base"
@@ -392,7 +388,6 @@ export default function HomePage() {
               ❯
             </button>
 
-            {/* Sort Dropdown */}
             <div className="hidden md:flex items-center space-x-1 pl-3 border-l border-gray-200 flex-shrink-0">
               <span className="text-[11px] font-bold text-gray-500">Sort:</span>
               <select
@@ -500,7 +495,6 @@ export default function HomePage() {
                   key={product.id}
                   className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative"
                 >
-                  {/* Wishlist Button */}
                   <button
                     onClick={() => toggleWishlist(product.id)}
                     className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer"
