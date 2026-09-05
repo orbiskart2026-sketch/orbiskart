@@ -101,6 +101,16 @@ export default function HomePage() {
   }, []);
 
   const fetchCartCount = async () => {
+    // 1. पहले लोकल स्टोरेज से काउंट लें ताकि तुरंत दिखे
+    try {
+      const localCart = JSON.parse(localStorage.getItem('user_cart_items') || '[]');
+      const localTotal = localCart.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
+      setCartCount(localTotal);
+    } catch {
+      // ignore
+    }
+
+    // 2. बैकएंड से सिंक करें
     const token = localStorage.getItem('access_token');
     if (!token) return;
     try {
@@ -110,8 +120,10 @@ export default function HomePage() {
       if (res.ok) {
         const data = await res.json();
         const itemsList = Array.isArray(data) ? data : data.items || [];
-        const totalItems = itemsList.reduce((sum: number, item: any) => sum + item.quantity, 0);
-        setCartCount(totalItems);
+        if (itemsList.length > 0) {
+          const totalItems = itemsList.reduce((sum: number, item: any) => sum + item.quantity, 0);
+          setCartCount(totalItems);
+        }
       }
     } catch {
       // ignore
@@ -198,9 +210,17 @@ export default function HomePage() {
   }, [search, selectedCategory, sortBy, filterType]);
 
   const handleAddToCart = async (product: Product, redirectToCart = false) => {
-    // 1. तुरंत लोकल स्टोरेज में कार्ट अपडेट करें (ताकि कार्ट कभी खाली न रहे)
+    setAddingId(product.id);
+
+    // 1. तुरंत लोकल स्टोरेज में कार्ट सेव करें
     const existingCart: any[] = JSON.parse(localStorage.getItem('user_cart_items') || '[]');
-    const existingIndex = existingCart.findIndex((i: any) => i.product.id === product.id);
+    const existingIndex = existingCart.findIndex((i: any) => i.product?.id === product.id);
+
+    const productImg = product.image
+      ? product.image.startsWith('http')
+        ? product.image
+        : `${API_BASE_URL}${product.image}`
+      : null;
 
     if (existingIndex > -1) {
       existingCart[existingIndex].quantity += 1;
@@ -211,11 +231,7 @@ export default function HomePage() {
           id: product.id,
           title: product.title,
           price: product.price,
-          image: product.image
-            ? product.image.startsWith('http')
-              ? product.image
-              : `${API_BASE_URL}${product.image}`
-            : null,
+          image: productImg,
         },
         quantity: 1,
       });
@@ -237,12 +253,15 @@ export default function HomePage() {
       }).catch(() => null);
     }
 
+    setAddingId(null);
+
     if (redirectToCart) {
       router.push('/cart');
     } else {
       alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
     }
   };
+
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
       {/* Header with OrbisKart Branding */}
@@ -265,7 +284,7 @@ export default function HomePage() {
             {search && (
               <button
                 onClick={() => setSearch('')}
-                className="absolute right-2.5 top-2 text-[10px] text-gray-400 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center"
+                className="absolute right-2.5 top-2 text-[10px] text-gray-400 bg-gray-200 rounded-full w-4 h-4 flex items-center justify-center cursor-pointer"
               >
                 ✕
               </button>
@@ -549,19 +568,17 @@ export default function HomePage() {
                     </div>
 
                     <div className="flex gap-1.5 sm:gap-2">
-                     <button
-  onClick={() => handleAddToCart(product, false)}
-  className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
->
-  Add to Cart 🛒
-</button>
+                      <button
+                        onClick={() => handleAddToCart(product, false)}
+                        disabled={addingId === product.id}
+                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
+                      >
+                        {addingId === product.id ? '...' : 'Add to Cart 🛒'}
+                      </button>
 
-<button
-  onClick={() => handleAddToCart(product, true)}
-  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
->
-  ⚡ Buy Now
-</button>
+                      <button
+                        onClick={() => handleAddToCart(product, true)}
+                        disabled={addingId === product.id}
                         className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
                       >
                         ⚡ Buy Now
