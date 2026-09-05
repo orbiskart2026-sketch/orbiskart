@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const getSupabase = () => {
@@ -11,18 +11,39 @@ const getSupabase = () => {
 
 export default function UnifiedMasterAdmin() {
   const [auth, setAuth] = useState(false);
+  const [view, setView] = useState<'login' | 'reset'>('login');
+  
+  // लॉगिन फ़ील्ड्स
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'audit' | 'sellers' | 'orders' | 'charges'>('audit');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  // डेटा स्टेट्स
+  // पासवर्ड रीसेट फ़ील्ड्स
+  const [recoveryPin, setRecoveryPin] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // डिफ़ॉल्ट रिकवरी मास्टर पिन (आपातकाल के लिए)
+  const MASTER_RECOVERY_PIN = '123456';
+
+  // स्थानीय स्टोरेज से पासवर्ड लोड/सेट करना
+  useEffect(() => {
+    if (!localStorage.getItem('orbiskart_admin_user')) {
+      localStorage.setItem('orbiskart_admin_user', 'admin');
+    }
+    if (!localStorage.getItem('orbiskart_admin_pass')) {
+      localStorage.setItem('orbiskart_admin_pass', 'admin123'); // आसान डिफ़ॉल्ट
+    }
+  }, []);
+
+  const [tab, setTab] = useState<'audit' | 'sellers' | 'orders' | 'charges'>('audit');
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [sellers, setSellers] = useState<any[]>([
     {
       id: 'SEL-101',
       store_name: 'Orbis Kart Mart',
-      owner: 'Naresh Prasad Soni',
+      owner: 'Store Admin',
       email: 'orbiskart2026@gmail.com',
       mobile: '+91 9876543210',
       gstin: '20AAAAA0000A1Z5',
@@ -30,8 +51,6 @@ export default function UnifiedMasterAdmin() {
       bank_acc: '50100234567890',
       ifsc: 'HDFC0001234',
       status: 'Verified',
-      otp_verified: true,
-      shop_photo: 'https://placehold.co/100x100?text=Shop+Front',
       commission_rate: 5.0
     }
   ]);
@@ -44,19 +63,43 @@ export default function UnifiedMasterAdmin() {
     return_penalty: 70.0
   });
 
-  // एडमिन क्रेडेंशियल्स
-  const ADMIN_USER = 'admin';
-  const ADMIN_PASS = 'OrbisKart@Audit2026';
-
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === ADMIN_USER && password === ADMIN_PASS) {
+    const savedUser = localStorage.getItem('orbiskart_admin_user') || 'admin';
+    const savedPass = localStorage.getItem('orbiskart_admin_pass') || 'admin123';
+
+    if (username === savedUser && password === savedPass) {
       setAuth(true);
       setError('');
       fetchLedger();
     } else {
-      setError('अमान्य यूज़रनेम या पासवर्ड! कृपया सही विवरण दर्ज करें।');
+      setError('गलत ID या पासवर्ड! यदि भूल गए हैं तो नीचे "पासवर्ड रीसेट करें" पर क्लिक करें।');
     }
+  };
+
+  const handleResetPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (recoveryPin !== MASTER_RECOVERY_PIN) {
+      setError('अमान्य रिकवरी पिन! (डिफ़ॉल्ट पिन 123456 है)');
+      return;
+    }
+    if (newPassword.length < 4) {
+      setError('पासवर्ड कम से कम 4 अक्षरों का होना चाहिए।');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('दोनों पासवर्ड मेल नहीं खा रहे हैं।');
+      return;
+    }
+
+    localStorage.setItem('orbiskart_admin_pass', newPassword);
+    setError('');
+    setSuccessMsg('पासवर्ड सफलतापूर्वक बदल दिया गया! अब लॉगिन करें।');
+    setView('login');
+    setPassword('');
+    setRecoveryPin('');
+    setNewPassword('');
+    setConfirmPassword('');
   };
 
   const fetchLedger = async () => {
@@ -69,10 +112,6 @@ export default function UnifiedMasterAdmin() {
     }
   };
 
-  const toggleSellerApproval = (id: string, newStatus: string) => {
-    setSellers(sellers.map(s => s.id === id ? { ...s, status: newStatus } : s));
-  };
-
   const totalGross = ledgers.reduce((a, b) => a + Number(b.gross_amount || 0), 0);
   const totalPlatformEarned = ledgers.reduce((a, b) => a + Number(b.platform_fee || 0), 0);
   const totalGST = ledgers.reduce((a, b) => a + Number(b.gst_tax || 0), 0);
@@ -80,51 +119,114 @@ export default function UnifiedMasterAdmin() {
 
   if (!auth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans text-slate-100">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-white tracking-wide">OrbisKart Master Admin</h2>
-            <p className="text-slate-400 text-xs mt-1">Multi-Vendor • KYC • Logistics • Audit Ledger</p>
+            <h2 className="text-2xl font-bold text-white tracking-wide">OrbisKart Control Center</h2>
+            <p className="text-slate-400 text-xs mt-1">Multi-Vendor • Logistics • Financial Ledger</p>
           </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="text-xs text-slate-300 font-semibold block mb-1 uppercase tracking-wider">
-                एडमिन लॉगिन आईडी (Username)
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-300 font-semibold block mb-1 uppercase tracking-wider">
-                पासवर्ड (Password)
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                required
-              />
-            </div>
-            {error && <p className="text-red-400 text-xs font-medium">{error}</p>}
-            <button
-              type="submit"
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30"
-            >
-              मास्टर एडमिन पैनल खोलें
-            </button>
-          </form>
-          <div className="mt-6 p-3 bg-slate-950 border border-slate-800 rounded-xl text-[11px] text-slate-400">
-            <div>डिफ़ॉल्ट ID: <span className="text-white font-mono font-semibold">admin</span></div>
-            <div>डिफ़ॉल्ट पासवर्ड: <span className="text-white font-mono font-semibold">OrbisKart@Audit2026</span></div>
-          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-300 text-xs font-medium">{error}</div>}
+          {successMsg && <div className="mb-4 p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs font-medium">{successMsg}</div>}
+
+          {/* लॉगिन व्यू */}
+          {view === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-300 font-semibold block mb-1">एडमिन आईडी (Username)</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="admin"
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-300 font-semibold block mb-1">पासवर्ड</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="पासवर्ड दर्ज करें..."
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition"
+              >
+                लॉगिन करें
+              </button>
+
+              <div className="flex justify-between items-center pt-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => { setView('reset'); setError(''); setSuccessMsg(''); }}
+                  className="text-indigo-400 hover:underline"
+                >
+                  पासवर्ड भूल गए? (Reset)
+                </button>
+                <span className="text-slate-500">डिफ़ॉल्ट ID: admin / Pass: admin123</span>
+              </div>
+            </form>
+          )}
+
+          {/* पासवर्ड रीसेट व्यू */}
+          {view === 'reset' && (
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-300 font-semibold block mb-1">मास्टर रिकवरी पिन</label>
+                <input
+                  type="password"
+                  value={recoveryPin}
+                  onChange={(e) => setRecoveryPin(e.target.value)}
+                  placeholder="डिफ़ॉल्ट पिन: 123456"
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-300 font-semibold block mb-1">नया पासवर्ड बनाएँ</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="नया पासवर्ड दर्ज करें..."
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-300 font-semibold block mb-1">नया पासवर्ड दोबारा दर्ज करें</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="पुष्टि करें..."
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm transition"
+              >
+                नया पासवर्ड सुरक्षित करें
+              </button>
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setView('login'); setError(''); setSuccessMsg(''); }}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  ← लॉगिन पर वापस जाएँ
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -134,17 +236,17 @@ export default function UnifiedMasterAdmin() {
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-wide">OrbisKart Control Center</h1>
-          <p className="text-xs text-slate-400">विक्रेता अनुमोदन • कूरियर ट्रैकिंग • GST एवं वित्तीय समाधान</p>
+          <h1 className="text-xl font-bold text-white tracking-wide">OrbisKart Unified Admin</h1>
+          <p className="text-xs text-slate-400">विक्रेता ऑडिट • कूरियर ट्रैकिंग • लेजर एवं नीतियां</p>
         </div>
         <div className="flex items-center gap-3">
           <a
             href="https://orbiskart.onrender.com/admin"
             target="_blank"
             rel="noreferrer"
-            className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-xs font-semibold transition"
+            className="px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg text-xs font-semibold"
           >
-            Django Core Panel ↗
+            Django Panel ↗
           </a>
           <button onClick={() => setAuth(false)} className="px-3 py-2 bg-red-600/20 text-red-400 rounded-lg text-xs font-semibold">
             लॉगआउट
@@ -152,6 +254,7 @@ export default function UnifiedMasterAdmin() {
         </div>
       </header>
 
+      {/* नेविगेशन टैब्स */}
       <div className="bg-slate-900/60 border-b border-slate-800 px-6 flex gap-6 text-sm font-semibold">
         <button
           onClick={() => setTab('audit')}
@@ -251,12 +354,10 @@ export default function UnifiedMasterAdmin() {
               <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
                 <tr>
                   <th className="p-3">दुकान / मालिक</th>
-                  <th className="p-3">दुकान फोटो</th>
                   <th className="p-3">GSTIN / Udyam</th>
-                  <th className="p-3">बैंक खाता विवरण</th>
-                  <th className="p-3">ई-केवाईसी स्थिति</th>
+                  <th className="p-3">बैंक विवरण</th>
+                  <th className="p-3">सत्यापन स्थिति</th>
                   <th className="p-3">कमीशन</th>
-                  <th className="p-3 text-center">कार्यवाही</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
@@ -265,10 +366,6 @@ export default function UnifiedMasterAdmin() {
                     <td className="p-3">
                       <div className="font-bold text-white">{s.store_name}</div>
                       <div className="text-slate-400">{s.owner} • {s.mobile}</div>
-                      <div className="text-slate-500">{s.email}</div>
-                    </td>
-                    <td className="p-3">
-                      <img src={s.shop_photo} alt="Shop" className="w-12 h-12 object-cover rounded-lg border border-slate-700" />
                     </td>
                     <td className="p-3 font-mono">
                       <div>GST: {s.gstin}</div>
@@ -276,34 +373,14 @@ export default function UnifiedMasterAdmin() {
                     </td>
                     <td className="p-3 font-mono">
                       <div>A/C: {s.bank_acc}</div>
-                      <div className="text-emerald-400 text-[10px]">IFSC: {s.ifsc} (Verified)</div>
+                      <div className="text-emerald-400 text-[10px]">IFSC: {s.ifsc}</div>
                     </td>
                     <td className="p-3">
-                      <span className="bg-indigo-950 text-indigo-300 border border-indigo-800 px-2 py-0.5 rounded text-[10px] block w-fit mb-1">
-                        Mobile OTP: OK
-                      </span>
-                      <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px] block w-fit">
-                        e-KYC: OK
+                      <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
+                        सत्यापित (Verified)
                       </span>
                     </td>
                     <td className="p-3 font-bold text-indigo-400">{s.commission_rate}%</td>
-                    <td className="p-3 text-center">
-                      {s.status === 'Verified' ? (
-                        <button
-                          onClick={() => toggleSellerApproval(s.id, 'Suspended')}
-                          className="px-3 py-1 bg-red-600/20 text-red-400 border border-red-500/30 rounded text-[11px] font-semibold hover:bg-red-600/30"
-                        >
-                          सस्पेंड करें
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => toggleSellerApproval(s.id, 'Verified')}
-                          className="px-3 py-1 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded text-[11px] font-semibold hover:bg-emerald-600/30"
-                        >
-                          स्वीकृत करें
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -316,19 +393,16 @@ export default function UnifiedMasterAdmin() {
             <h3 className="text-base font-bold text-white mb-2">लॉजिस्टिक्स, AWB एवं रिटर्न कूरियर ऑडिट</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400">सक्रिय कूरियर पार्टनर</div>
+                <div className="text-xs text-slate-400">कूरियर पार्टनर</div>
                 <div className="text-lg font-bold text-white mt-1">Delhivery / Shiprocket</div>
-                <div className="text-xs text-emerald-400 mt-2">API स्थिति: सक्रिय</div>
               </div>
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400">OTP-आधारित सुरक्षित डिलीवरी</div>
-                <div className="text-lg font-bold text-white mt-1">99.4% सफलता दर</div>
-                <div className="text-xs text-slate-400 mt-2">फ़र्ज़ी डिलीवरी रोकथाम सक्रिय</div>
+                <div className="text-xs text-slate-400">OTP-आधारित डिलीवरी</div>
+                <div className="text-lg font-bold text-white mt-1">सक्रिय (Anti-Fraud)</div>
               </div>
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400">RTO / रिटर्न चार्ज पेनल्टी</div>
-                <div className="text-lg font-bold text-amber-400 mt-1">₹{config.return_penalty} / पार्सल</div>
-                <div className="text-xs text-slate-400 mt-2">गलत रिटर्न पर सेलर/कूरियर ऑडिट</div>
+                <div className="text-xs text-slate-400">रिटर्न कूरियर पेनल्टी</div>
+                <div className="text-lg font-bold text-amber-400 mt-1">₹{config.return_penalty} / ऑर्डर</div>
               </div>
             </div>
           </div>
@@ -362,15 +436,6 @@ export default function UnifiedMasterAdmin() {
                   type="number"
                   value={config.gst_percent}
                   onChange={(e) => setConfig({ ...config, gst_percent: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">रिटर्न कूरियर पेनल्टी (₹)</label>
-                <input
-                  type="number"
-                  value={config.return_penalty}
-                  onChange={(e) => setConfig({ ...config, return_penalty: Number(e.target.value) })}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                 />
               </div>
