@@ -1,286 +1,327 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-interface Review {
-  id: number;
-  username: string;
-  rating: number;
-  comment: string;
-  created_at: string;
-}
-
-interface ProductDetail {
-  id: number;
+interface Product {
+  id: string | number;
   title: string;
+  price: number;
+  originalPrice: number;
+  discount: number;
   description: string;
-  price: string;
-  original_price: string | null;
-  image: string | null;
+  images: string[];
   stock: number;
-  category_name?: string;
-  average_rating: number;
-  total_reviews: number;
-  reviews: Review[];
+  seller: {
+    name: string;
+    rating: number;
+    isVerified: boolean;
+  };
+  features: string[];
 }
 
-export default function ProductDetailPage() {
-  const { id } = useParams();
-  const router = useRouter();
+interface Review {
+  id: string;
+  userName: string;
+  rating: number;
+  date: string;
+  comment: string;
+  verifiedBuyer: boolean;
+}
 
-  const [product, setProduct] = useState<ProductDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [addingCart, setAddingCart] = useState(false);
+export default function ProductDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
 
-  // Review Form States
-  const [rating, setRating] = useState(5);
-  const [comment, setComment] = useState('');
-  const [submittingReview, setSubmittingReview] = useState(false);
+  // प्रोडक्ट डेटा (Django API से जुड़ने के लिए फ़ॉलबैक स्ट्रक्चर)
+  const [product, setProduct] = useState<Product>({
+    id: id,
+    title: 'Orbis Premium Wireless Noise-Cancelling Headphones (Pro Edition)',
+    price: 2499,
+    originalPrice: 4999,
+    discount: 50,
+    description: 'क्रिस्टल क्लियर साउंड और डीप बास के साथ प्रीमियम हेडफ़ोन। 40 घंटे की लंबी बैटरी लाइफ, टाइप-सी फ़ास्ट चार्जिंग और ऑटोमैटिक नॉइज़ कैंसिलेशन से लैस। 1 साल की ब्रांड वारंटी के साथ उपलब्ध।',
+    images: [
+      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80',
+      'https://images.unsplash.com/photo-1583394838336-acd977736f90?w=800&q=80',
+      'https://images.unsplash.com/photo-1484704849700-f032a568e944?w=800&q=80',
+    ],
+    stock: 12,
+    seller: {
+      name: 'Orbis Kart Mart',
+      rating: 4.8,
+      isVerified: true,
+    },
+    features: [
+      '40 घंटे का बैकअप और फ़ास्ट चार्जिंग',
+      'एक्टिव नॉइज़ कैंसिलेशन (ANC)',
+      '1 वर्ष की पैन इंडिया वारंटी',
+      '7 दिन की आसान रिटर्न एवं रिप्लेसमेंट पॉलिसी',
+    ],
+  });
 
-  const fetchProduct = async () => {
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/api/products/${id}/`);
-      if (res.ok) {
-        const data = await res.json();
-        setProduct(data);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  const [selectedImage, setSelectedImage] = useState(product.images[0]);
+  const [pincode, setPincode] = useState('');
+  const [deliveryStatus, setDeliveryStatus] = useState('');
+  const [quantity, setQuantity] = useState(1);
+
+  // रिव्यू और रेटिंग स्टेट्स
+  const [reviews, setReviews] = useState<Review[]>([
+    {
+      id: '1',
+      userName: 'राजेश वर्मा',
+      rating: 5,
+      date: '2 दिन पहले',
+      comment: 'साउंड क्वालिटी बहुत ही ज़बरदस्त है। 2 दिन के अंदर सुरक्षित डिलीवरी मिली!',
+      verifiedBuyer: true,
+    },
+    {
+      id: '2',
+      userName: 'अमित कुमार',
+      rating: 4,
+      date: '1 हफ़्ते पहले',
+      comment: 'बैटरी बैकअप काफ़ी अच्छा है। इस कीमत में सबसे बेहतरीन हेडफ़ोन।',
+      verifiedBuyer: true,
+    },
+  ]);
+
+  const [newRating, setNewRating] = useState(5);
+  const [newComment, setNewComment] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+
+  // पिनकोड चेकर
+  const checkDelivery = () => {
+    if (pincode.length === 6) {
+      setDeliveryStatus('✓ आपके पिनकोड पर डिलीवरी उपलब्ध है (3 से 5 दिनों में एक्सप्रेस डिलीवरी)');
+    } else {
+      setDeliveryStatus('कृपया 6 अंकों का सही पिनकोड दर्ज करें।');
     }
   };
 
-  useEffect(() => {
-    if (id) fetchProduct();
-  }, [id]);
-
-  const handleAddToCart = async () => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/login');
-      return;
-    }
-
-    setAddingCart(true);
-    try {
-      const res = await fetch('http://127.0.0.1:8000/api/cart/add/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ product_id: product?.id, quantity: 1 }),
-      });
-      if (res.ok) {
-        alert('उत्पाद कार्ट में जोड़ा गया! 🛒');
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingCart(false);
-    }
-  };
-
-  const handleReviewSubmit = async (e: React.FormEvent) => {
+  // नया रिव्यू जोड़ना
+  const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      alert('समीक्षा लिखने के लिए पहले लॉगिन करें।');
-      return;
-    }
+    if (!newComment || !newUserName) return;
 
-    setSubmittingReview(true);
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/api/products/${id}/reviews/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ rating, comment }),
-      });
+    const newRev: Review = {
+      id: Date.now().toString(),
+      userName: newUserName,
+      rating: newRating,
+      date: 'अभी-अभी',
+      comment: newComment,
+      verifiedBuyer: true,
+    };
 
-      if (res.ok) {
-        setComment('');
-        fetchProduct();
-        alert('समीक्षा सफलतापूर्वक जोड़ी गई! ⭐');
-      } else {
-        const errData = await res.json();
-        alert(errData.error || 'समीक्षा सबमिट नहीं हो सकी।');
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmittingReview(false);
-    }
+    setReviews([newRev, ...reviews]);
+    setNewComment('');
+    setNewUserName('');
+    alert('आपकी समीक्षा सफलतापूर्वक दर्ज कर ली गई है!');
   };
-
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">Loading product details...</div>;
-  }
-
-  if (!product) {
-    return <div className="min-h-screen flex items-center justify-center font-bold text-gray-500">Product not found.</div>;
-  }
-
-  const imageUrl = product.image
-    ? (product.image.startsWith('http') ? product.image : `http://127.0.0.1:8000${product.image}`)
-    : null;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 pb-20">
-      <header className="bg-white border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="text-2xl font-black text-blue-600">
-            MegaStore
-          </Link>
-          <div className="flex items-center space-x-4">
-            <Link href="/" className="text-sm font-semibold text-gray-700 hover:text-blue-600">
-              Home
-            </Link>
-            <Link href="/cart" className="text-sm font-bold bg-blue-50 text-blue-600 px-3.5 py-1.5 rounded-lg border border-blue-200">
-              🛒 Cart
-            </Link>
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-16">
+      {/* नेविगेशन ब्रेडक्रंब */}
+      <div className="max-w-7xl mx-auto px-4 py-4 text-xs text-slate-400 flex items-center gap-2 border-b border-slate-800">
+        <Link href="/" className="hover:text-indigo-400">होम</Link>
+        <span>/</span>
+        <Link href="/" className="hover:text-indigo-400">इलेक्ट्रॉनिक्स</Link>
+        <span>/</span>
+        <span className="text-slate-200 truncate">{product.title}</span>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 md:grid-cols-12 gap-8">
+        {/* बायां हिस्सा: इमेज गैलरी (5 कॉलम) */}
+        <div className="md:col-span-5 space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-center overflow-hidden">
+            <img
+              src={selectedImage}
+              alt={product.title}
+              className="w-full h-96 object-contain rounded-xl hover:scale-105 transition duration-300"
+            />
+          </div>
+          <div className="flex gap-3 justify-center">
+            {product.images.map((img, idx) => (
+              <button
+                key={idx}
+                onClick={() => setSelectedImage(img)}
+                className={`w-20 h-20 rounded-xl overflow-hidden border-2 transition ${
+                  selectedImage === img ? 'border-indigo-500 scale-105' : 'border-slate-800 opacity-70'
+                }`}
+              >
+                <img src={img} alt="" className="w-full h-full object-cover" />
+              </button>
+            ))}
           </div>
         </div>
-      </header>
 
-      <main className="max-w-6xl mx-auto px-4 pt-10">
-        <div className="bg-white border rounded-3xl p-8 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-10">
-          <div className="bg-gray-50 border rounded-2xl p-6 flex items-center justify-center min-h-[380px]">
-            {imageUrl ? (
-              <img src={imageUrl} alt={product.title} className="max-h-96 object-contain rounded-xl" />
-            ) : (
-              <span className="text-gray-400 font-bold">No Image Available</span>
+        {/* दायां हिस्सा: प्रोडक्ट विवरण एवं एक्शन (7 कॉलम) */}
+        <div className="md:col-span-7 space-y-6">
+          <div>
+            <span className="bg-indigo-950 text-indigo-400 border border-indigo-800 px-3 py-1 rounded-full text-xs font-semibold">
+              Orbis Verified Choice
+            </span>
+            <h1 className="text-2xl md:text-3xl font-bold text-white mt-3 leading-snug">
+              {product.title}
+            </h1>
+            <div className="flex items-center gap-3 mt-2 text-sm">
+              <span className="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                ★ 4.8
+              </span>
+              <span className="text-slate-400 text-xs">({reviews.length} कस्टमर रिव्यूज़)</span>
+              <span className="text-slate-500">•</span>
+              <span className="text-emerald-400 text-xs font-medium">स्टॉक में उपलब्ध ({product.stock} बाकी)</span>
+            </div>
+          </div>
+
+          {/* प्राइसिंग ब्रेकडाउन */}
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-baseline gap-4">
+            <span className="text-3xl font-extrabold text-white">₹{product.price}</span>
+            <span className="text-slate-400 line-through text-lg">₹{product.originalPrice}</span>
+            <span className="text-emerald-400 font-bold text-sm bg-emerald-950/60 px-2 py-1 rounded">
+              {product.discount}% छूट
+            </span>
+          </div>
+
+          <p className="text-slate-300 text-sm leading-relaxed">{product.description}</p>
+
+          {/* मुख्य विशेषताएं */}
+          <div className="space-y-2 border-t border-b border-slate-800 py-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">मुख्य विशेषताएं</h3>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
+              {product.features.map((feat, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span className="text-indigo-400 font-bold">✓</span> {feat}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* डिलीवरी पिनकोड चेकर */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-400">डिलीवरी उपलब्धता जाँचें</label>
+            <div className="flex gap-2 max-w-sm">
+              <input
+                type="text"
+                maxLength={6}
+                value={pincode}
+                onChange={(e) => setPincode(e.target.value)}
+                placeholder="6 अंकों का पिनकोड..."
+                className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={checkDelivery}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl border border-slate-700 transition"
+              >
+                जाँचें
+              </button>
+            </div>
+            {deliveryStatus && (
+              <p className={`text-xs ${deliveryStatus.includes('✓') ? 'text-emerald-400' : 'text-red-400'}`}>
+                {deliveryStatus}
+              </p>
             )}
           </div>
 
-          <div className="flex flex-col justify-between">
+          {/* सेलर की जानकारी */}
+          <div className="bg-slate-900/60 border border-slate-800 p-3 rounded-xl flex justify-between items-center text-xs">
             <div>
-              {product.category_name && (
-                <span className="inline-block bg-blue-50 text-blue-600 text-xs font-black uppercase px-3 py-1 rounded-full mb-3">
-                  {product.category_name}
-                </span>
-              )}
-              <h1 className="text-2xl sm:text-3xl font-black text-gray-900 mb-3">{product.title}</h1>
-
-              <div className="flex items-center space-x-3 mb-6">
-                <div className="flex items-center bg-green-600 text-white text-xs font-black px-2.5 py-1 rounded-lg">
-                  <span>{product.average_rating > 0 ? product.average_rating : 'New'}</span>
-                  <span className="ml-1">★</span>
-                </div>
-                <span className="text-xs font-bold text-gray-500">
-                  {product.total_reviews} Ratings & Reviews
-                </span>
-              </div>
-
-              <div className="bg-gray-50 border rounded-2xl p-5 mb-6">
-                <div className="flex items-baseline space-x-3">
-                  <span className="text-3xl font-black text-gray-900">₹{product.price}</span>
-                  {product.original_price && (
-                    <span className="text-sm text-gray-400 line-through">₹{product.original_price}</span>
-                  )}
-                  <span className="text-xs font-bold text-green-600">Inclusive of 18% GST</span>
-                </div>
-              </div>
-
-              <div className="mb-6">
-                <h3 className="text-xs uppercase font-bold text-gray-400 mb-2">Description</h3>
-                <p className="text-gray-700 text-sm leading-relaxed">{product.description}</p>
-              </div>
+              <span className="text-slate-400">विक्रेता: </span>
+              <span className="font-bold text-white">{product.seller.name}</span>
             </div>
+            <span className="text-indigo-400 border border-indigo-800 bg-indigo-950 px-2 py-0.5 rounded text-[11px]">
+              सत्यापित सेलर
+            </span>
+          </div>
 
-            <div className="pt-4 border-t">
-              <button
-                onClick={handleAddToCart}
-                disabled={addingCart}
-                className="w-full bg-blue-600 text-white font-extrabold text-sm py-4 rounded-xl hover:bg-blue-700 transition shadow-md disabled:bg-blue-300"
-              >
-                {addingCart ? 'Adding...' : 'Add to Cart 🛒'}
-              </button>
-            </div>
+          {/* एक्शन बटन्स (Add to Cart & Buy Now) */}
+          <div className="flex gap-4 pt-2">
+            <button className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold rounded-xl text-sm transition">
+              कार्ट में जोड़ें
+            </button>
+            <button className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30">
+              अभी खरीदें (Buy Now)
+            </button>
           </div>
         </div>
+      </div>
 
-        <section className="mt-12 bg-white border rounded-3xl p-8 shadow-sm">
-          <h2 className="text-xl font-extrabold text-gray-900 mb-6">Customer Reviews & Ratings</h2>
+      {/* ग्राहक समीक्षा एवं रेटिंग सेक्शन */}
+      <div className="max-w-7xl mx-auto px-4 mt-16 pt-8 border-t border-slate-800">
+        <h2 className="text-xl font-bold text-white mb-6">ग्राहक समीक्षाएं एवं रेटिंग्स</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="md:col-span-1 bg-gray-50 border rounded-2xl p-6 h-fit">
-              <h3 className="font-extrabold text-sm text-gray-900 mb-4">Rate this Product</h3>
-              <form onSubmit={handleReviewSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 mb-1">Rating</label>
-                  <select
-                    value={rating}
-                    onChange={(e) => setRating(Number(e.target.value))}
-                    className="w-full bg-white border rounded-lg p-2 text-sm font-bold text-gray-800"
-                  >
-                    <option value={5}>5 ★★★★★ (Excellent)</option>
-                    <option value={4}>4 ★★★★☆ (Good)</option>
-                    <option value={3}>3 ★★★☆☆ (Average)</option>
-                    <option value={2}>2 ★★☆☆☆ (Poor)</option>
-                    <option value={1}>1 ★☆☆☆☆ (Terrible)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-600 mb-1">Your Review</label>
-                  <textarea
-                    rows={4}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    placeholder="Write your honest feedback..."
-                    className="w-full bg-white border rounded-lg p-2.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submittingReview}
-                  className="w-full bg-gray-900 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-gray-800 transition disabled:bg-gray-400"
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          {/* बायाँ: नया रिव्यू लिखने का फ़ॉर्म */}
+          <div className="md:col-span-5 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+            <h3 className="text-sm font-bold text-white mb-4">अपनी समीक्षा दर्ज करें</h3>
+            <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">आपका नाम</label>
+                <input
+                  type="text"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  placeholder="उदा. राहुल शर्मा"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">रेटिंग (स्टार्स)</label>
+                <select
+                  value={newRating}
+                  onChange={(e) => setNewRating(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {submittingReview ? 'Submitting...' : 'Submit Review'}
-                </button>
-              </form>
-            </div>
+                  <option value={5}>★★★★★ (5 - उत्कृष्ट)</option>
+                  <option value={4}>★★★★☆ (4 - बहुत अच्छा)</option>
+                  <option value={3}>★★★☆☆ (3 - सामान्य)</option>
+                  <option value={2}>★★☆☆☆ (2 - ख़राब)</option>
+                  <option value={1}>★☆☆☆☆ (1 - बहुत ख़राब)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1">आपकी विस्तृत समीक्षा</label>
+                <textarea
+                  rows={3}
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="प्रोडक्ट की क्वालिटी, डिलीवरी आदि के बारे में लिखें..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg transition"
+              >
+                समीक्षा सबमिट करें
+              </button>
+            </form>
+          </div>
 
-            <div className="md:col-span-2 space-y-4">
-              {product.reviews.length === 0 ? (
-                <div className="text-center py-12 text-gray-400 font-medium">
-                  अभी तक कोई समीक्षा नहीं लिखी गई है। पहले समीक्षक बनें!
-                </div>
-              ) : (
-                product.reviews.map((rev) => (
-                  <div key={rev.id} className="border-b pb-4 last:border-0">
-                    <div className="flex items-center space-x-3 mb-1">
-                      <div className="bg-green-600 text-white text-[10px] font-black px-2 py-0.5 rounded">
-                        {rev.rating} ★
-                      </div>
-                      <span className="font-extrabold text-xs text-gray-900">{rev.username}</span>
-                      <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+          {/* दायाँ: सभी रिव्यूज़ की लिस्ट */}
+          <div className="md:col-span-7 space-y-4">
+            {reviews.map((rev) => (
+              <div key={rev.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-2">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-xs">{rev.userName}</span>
+                    {rev.verifiedBuyer && (
+                      <span className="text-emerald-400 text-[10px] bg-emerald-950 border border-emerald-800 px-1.5 py-0.5 rounded">
                         ✓ Verified Buyer
                       </span>
-                    </div>
-                    <p className="text-xs text-gray-700 mt-1">{rev.comment}</p>
-                    <span className="text-[10px] text-gray-400 mt-1 block">
-                      {new Date(rev.created_at).toLocaleDateString('en-IN', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
+                  <span className="text-slate-500 text-[11px]">{rev.date}</span>
+                </div>
+                <div className="text-amber-400 text-xs tracking-wider">
+                  {'★'.repeat(rev.rating)}{'☆'.repeat(5 - rev.rating)}
+                </div>
+                <p className="text-slate-300 text-xs leading-relaxed">{rev.comment}</p>
+              </div>
+            ))}
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
