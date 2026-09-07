@@ -69,6 +69,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [selectedImage, setSelectedImage] = useState(product.images[0]);
   const [pincode, setPincode] = useState('');
   const [deliveryStatus, setDeliveryStatus] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // रिव्यू और रेटिंग स्टेट्स
   const [reviews, setReviews] = useState<Review[]>([
@@ -123,22 +124,56 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     alert('आपकी समीक्षा सफलतापूर्वक दर्ज कर ली गई है!');
   };
 
-  // लाइव Razorpay पेमेंट ट्रिगर
+  // लाइव Razorpay पेमेंट ट्रिगर एवं ऑटो डेटाबेस सिंक
   const handlePayment = () => {
     if (typeof window === 'undefined' || !window.Razorpay) {
       alert('Razorpay गेटवे लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
       return;
     }
 
+    setIsProcessing(true);
+
     const options = {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TYKZhqjKUBOWGD',
-      amount: product.price * 100, // पैसे में राशि (₹2499 * 100 = 249900 पैसे)
+      amount: product.price * 100, // पैसे में राशि (₹2499 * 100)
       currency: 'INR',
       name: 'OrbisKart',
       description: product.title,
       image: 'https://placehold.co/128x128?text=OrbisKart',
-      handler: function (response: any) {
-        alert(`भुगतान सफल! Payment ID: ${response.razorpay_payment_id}`);
+      handler: async function (response: any) {
+        try {
+          // बैकएंड API पर ऑर्डर और लेजर सिंक करें
+          const res = await fetch('/api/checkout/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_payment_id: response.razorpay_payment_id,
+              productId: product.id,
+              amount: product.price,
+              customerEmail: 'customer@orbiskart.com',
+              customerContact: '9876543210',
+            }),
+          });
+
+          const result = await res.json();
+          if (result.success) {
+            alert(
+              `🎉 ऑर्डर सफलतापूर्वक कन्फ़र्म हुआ!\n\n` +
+              `Payment ID: ${response.razorpay_payment_id}\n` +
+              `Order ID: ${result.orderId}\n` +
+              `AWB Tracking: ${result.awb}\n` +
+              `Delivery OTP: ${result.otp}\n\n` +
+              `लेजर और P&L डेटा एडमिन पैनल में स्वतः दर्ज हो चुका है।`
+            );
+          } else {
+            alert(`पेमेंट आईडी ${response.razorpay_payment_id} प्राप्त हुई, पर लेजर सिंक में त्रुटि रही।`);
+          }
+        } catch (error) {
+          console.error('Sync Error:', error);
+          alert(`भुगतान सफल! Payment ID: ${response.razorpay_payment_id}`);
+        } finally {
+          setIsProcessing(false);
+        }
       },
       prefill: {
         name: 'Customer',
@@ -152,6 +187,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
 
     const paymentObject = new window.Razorpay(options);
     paymentObject.on('payment.failed', function (response: any) {
+      setIsProcessing(false);
       alert(`Payment Failed: ${response.error?.description || 'भुगतान असफल रहा'}`);
     });
     paymentObject.open();
@@ -275,16 +311,17 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             </span>
           </div>
 
-          {/* एक्शन बटन्स (Add to Cart & Buy Now) */}
+          {/* एक्शन बटन्स */}
           <div className="flex gap-4 pt-2">
             <button className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold rounded-xl text-sm transition">
               कार्ट में जोड़ें
             </button>
             <button
               onClick={handlePayment}
-              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30"
+              disabled={isProcessing}
+              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30 disabled:opacity-50"
             >
-              अभी खरीदें (Buy Now)
+              {isProcessing ? 'प्रोसेसिंग...' : 'अभी खरीदें (Buy Now)'}
             </button>
           </div>
         </div>
