@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
+import Script from 'next/script';
 
 interface Product {
   id: string | number;
@@ -29,11 +30,17 @@ interface Review {
   verifiedBuyer: boolean;
 }
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 export default function ProductDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
 
-  // प्रोडक्ट डेटा (Django API से जुड़ने के लिए फ़ॉलबैक स्ट्रक्चर)
-  const [product, setProduct] = useState<Product>({
+  // प्रोडक्ट डेटा
+  const [product] = useState<Product>({
     id: id,
     title: 'Orbis Premium Wireless Noise-Cancelling Headphones (Pro Edition)',
     price: 2499,
@@ -62,7 +69,6 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
   const [selectedImage, setSelectedImage] = useState(product.images[0]);
   const [pincode, setPincode] = useState('');
   const [deliveryStatus, setDeliveryStatus] = useState('');
-  const [quantity, setQuantity] = useState(1);
 
   // रिव्यू और रेटिंग स्टेट्स
   const [reviews, setReviews] = useState<Review[]>([
@@ -97,7 +103,7 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     }
   };
 
-  // नया रिव्यू जोड़ना
+  // नया रिव्यू सबमिट करना
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment || !newUserName) return;
@@ -117,8 +123,45 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
     alert('आपकी समीक्षा सफलतापूर्वक दर्ज कर ली गई है!');
   };
 
+  // लाइव Razorpay पेमेंट ट्रिगर
+  const handlePayment = () => {
+    if (typeof window === 'undefined' || !window.Razorpay) {
+      alert('Razorpay गेटवे लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
+      return;
+    }
+
+    const options = {
+      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_TYKZhqjKUBOWGD',
+      amount: product.price * 100, // पैसे में राशि (₹2499 * 100 = 249900 पैसे)
+      currency: 'INR',
+      name: 'OrbisKart',
+      description: product.title,
+      image: 'https://placehold.co/128x128?text=OrbisKart',
+      handler: function (response: any) {
+        alert(`भुगतान सफल! Payment ID: ${response.razorpay_payment_id}`);
+      },
+      prefill: {
+        name: 'Customer',
+        email: 'customer@orbiskart.com',
+        contact: '9876543210',
+      },
+      theme: {
+        color: '#4f46e5',
+      },
+    };
+
+    const paymentObject = new window.Razorpay(options);
+    paymentObject.on('payment.failed', function (response: any) {
+      alert(`Payment Failed: ${response.error?.description || 'भुगतान असफल रहा'}`);
+    });
+    paymentObject.open();
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-16">
+      {/* Razorpay स्क्रिप्ट लोड करना */}
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+
       {/* नेविगेशन ब्रेडक्रंब */}
       <div className="max-w-7xl mx-auto px-4 py-4 text-xs text-slate-400 flex items-center gap-2 border-b border-slate-800">
         <Link href="/" className="hover:text-indigo-400">होम</Link>
@@ -237,7 +280,10 @@ export default function ProductDetailPage({ params }: { params: { id: string } }
             <button className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-semibold rounded-xl text-sm transition">
               कार्ट में जोड़ें
             </button>
-            <button className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30">
+            <button
+              onClick={handlePayment}
+              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition shadow-lg shadow-indigo-600/30"
+            >
               अभी खरीदें (Buy Now)
             </button>
           </div>
