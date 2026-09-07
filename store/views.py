@@ -1,7 +1,7 @@
 import io
 from decimal import Decimal, ROUND_HALF_UP
-from django.db import models
-from django.db import transaction
+
+from django.db import models, transaction
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 
@@ -16,7 +16,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from .models import Category, Product, Cart, CartItem, Order, OrderItem, Review
 from .serializers import ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
-from .serializers import ProductSerializer, CartSerializer, OrderSerializer
+
+
 # --- User Registration API ---
 class RegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -35,6 +36,7 @@ class RegisterAPIView(APIView):
         user = User.objects.create_user(username=username, email=email, password=password)
         Cart.objects.get_or_create(user=user)
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
+
 
 # --- Product List API (With Search, Category & Sorting Filters) ---
 class ProductListView(APIView):
@@ -66,9 +68,7 @@ class ProductListView(APIView):
             else:
                 queryset = queryset.order_by('-id')
 
-            serializer = ProductSerializer(queryset, many=True)
-            
-            # Categories List for Frontend Filter Bar
+            serializer = ProductSerializer(queryset, many=True, context={'request': request})
             categories = Category.objects.all().values('id', 'name')
 
             return Response({
@@ -78,19 +78,35 @@ class ProductListView(APIView):
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- Product Detail API (Auto-fetch by ID) ---
+class ProductDetailView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk):
+        try:
+            product = Product.objects.select_related('category').prefetch_related('reviews__user').filter(pk=pk).first()
+            if not product:
+                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+            serializer = ProductSerializer(product, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 # --- Cart View API ---
 class CartView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         try:
-            cart = Cart.objects.filter(user=request.user).first()
-            if not cart:
-                cart = Cart.objects.create(user=request.user)
-            serializer = CartSerializer(cart)
+            cart, _ = Cart.objects.get_or_create(user=request.user)
+            serializer = CartSerializer(cart, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # --- Add to Cart API ---
 class AddToCartView(APIView):
@@ -105,9 +121,7 @@ class AddToCartView(APIView):
             if not product:
                 return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
 
-            cart = Cart.objects.filter(user=request.user).first()
-            if not cart:
-                cart = Cart.objects.create(user=request.user)
+            cart, _ = Cart.objects.get_or_create(user=request.user)
 
             cart_item, created = CartItem.objects.get_or_create(cart=cart, product=product)
             if not created:
@@ -119,6 +133,7 @@ class AddToCartView(APIView):
             return Response({'message': 'Product added to cart'}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # --- Update Cart Quantity API ---
 class UpdateCartItemView(APIView):
@@ -147,6 +162,7 @@ class UpdateCartItemView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 # --- Remove from Cart API ---
 class RemoveFromCartView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -163,7 +179,8 @@ class RemoveFromCartView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# --- Order Checkout API (With Transparent Pricing & Atomic Transaction) ---
+
+# --- Order Checkout API ---
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -218,7 +235,6 @@ class CreateOrderView(APIView):
                     for item in cart_items
                 ]
                 OrderItem.objects.bulk_create(order_items_to_create)
-
                 cart_items.delete()
 
             return Response({
@@ -230,6 +246,7 @@ class CreateOrderView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 # --- User Orders List API ---
 class UserOrdersListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -237,14 +254,15 @@ class UserOrdersListView(APIView):
     def get(self, request):
         try:
             orders = Order.objects.filter(user=request.user).order_by('-created_at')
-            serializer = OrderSerializer(orders, many=True)
+            serializer = OrderSerializer(orders, many=True, context={'request': request})
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        # --- 1-Click GST Tax Invoice PDF Generator ---
+
+
 # --- 1-Click GST Tax Invoice PDF Generator ---
 class DownloadInvoicePDFView(APIView):
-    permission_classes = [permissions.AllowAny]  # टेस्टिंग के लिए AllowAny या IsAuthenticated
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, order_id):
         try:
@@ -281,11 +299,11 @@ class DownloadInvoicePDFView(APIView):
                 textColor=colors.HexColor('#111827')
             )
 
-            # Header Banner
+            # Header Banner (OrbisKart Branding)
             header_data = [
                 [
-                    Paragraph("<b>MegaStore Retail India Pvt Ltd</b><br/>CIN: U74999DL2024PTC123456<br/>GSTIN: <b>20AAACM1234F1Z5</b><br/>State: Jharkhand (Code: 20)", normal_style),
-                    Paragraph("<b>TAX INVOICE</b><br/>(Original for Recipient)<br/><b>Invoice No:</b> MST-INV-2026-00" + str(order.id) + "<br/><b>Date:</b> " + order.created_at.strftime('%d-%b-%Y'), normal_style)
+                    Paragraph("<b>OrbisKart Retail India Pvt Ltd</b><br/>GSTIN: <b>20AAACM1234F1Z5</b><br/>State: Jharkhand (Code: 20)", normal_style),
+                    Paragraph("<b>TAX INVOICE</b><br/>(Original for Recipient)<br/><b>Invoice No:</b> ORB-INV-2026-00" + str(order.id) + "<br/><b>Date:</b> " + order.created_at.strftime('%d-%b-%Y'), normal_style)
                 ]
             ]
             t_header = Table(header_data, colWidths=[270, 260])
@@ -320,7 +338,7 @@ class DownloadInvoicePDFView(APIView):
                     Paragraph("<b>Description</b>", bold_style),
                     Paragraph("<b>HSN</b>", bold_style),
                     Paragraph("<b>Qty</b>", bold_style),
-                    Paragraph("<b>Gross Price</b>", bold_style),
+                    Paragraph("<b>Base Price</b>", bold_style),
                     Paragraph("<b>CGST (9%)</b>", bold_style),
                     Paragraph("<b>SGST (9%)</b>", bold_style),
                     Paragraph("<b>Total (INR)</b>", bold_style)
@@ -328,23 +346,24 @@ class DownloadInvoicePDFView(APIView):
             ]
 
             idx = 1
-            for item in order.items.all():
+            for item in order.items.select_related('product').all():
                 gross_unit = float(item.price)
                 item_total = gross_unit * item.quantity
                 base_unit = round(item_total / 1.18, 2)
                 gst_total = item_total - base_unit
                 cgst = round(gst_total / 2, 2)
                 sgst = round(gst_total / 2, 2)
+                hsn = getattr(item.product, 'hsn_code', '851830') or '851830'
 
                 table_rows.append([
                     Paragraph(str(idx), normal_style),
                     Paragraph(str(item.product.title), normal_style),
-                    Paragraph("85183000", normal_style),
+                    Paragraph(str(hsn), normal_style),
                     Paragraph(str(item.quantity), normal_style),
-                    Paragraph("Rs. " + str(base_unit), normal_style),
-                    Paragraph("Rs. " + str(cgst), normal_style),
-                    Paragraph("Rs. " + str(sgst), normal_style),
-                    Paragraph("Rs. " + str(round(item_total, 2)), bold_style),
+                    Paragraph(f"Rs. {base_unit}", normal_style),
+                    Paragraph(f"Rs. {cgst}", normal_style),
+                    Paragraph(f"Rs. {sgst}", normal_style),
+                    Paragraph(f"Rs. {round(item_total, 2)}", bold_style),
                 ])
                 idx += 1
 
@@ -360,10 +379,10 @@ class DownloadInvoicePDFView(APIView):
 
             # Summary Totals
             summary_data = [
-                ["", Paragraph("<b>Taxable Base Amount:</b>", normal_style), Paragraph("Rs. " + str(order.base_price), normal_style)],
-                ["", Paragraph("<b>Total GST (18%):</b>", normal_style), Paragraph("Rs. " + str(order.tax_amount), normal_style)],
-                ["", Paragraph("<b>Delivery / Shipping:</b>", normal_style), Paragraph("Rs. " + str(order.delivery_fee), normal_style)],
-                ["", Paragraph("<b>Grand Total (Incl. Taxes):</b>", bold_style), Paragraph("<b>Rs. " + str(order.total_price) + "</b>", bold_style)],
+                ["", Paragraph("<b>Taxable Base Amount:</b>", normal_style), Paragraph(f"Rs. {order.base_price}", normal_style)],
+                ["", Paragraph("<b>Total GST (18%):</b>", normal_style), Paragraph(f"Rs. {order.tax_amount}", normal_style)],
+                ["", Paragraph("<b>Delivery / Shipping:</b>", normal_style), Paragraph(f"Rs. {order.delivery_fee}", normal_style)],
+                ["", Paragraph("<b>Grand Total:</b>", bold_style), Paragraph(f"<b>Rs. {order.total_price}</b>", bold_style)],
             ]
             t_summary = Table(summary_data, colWidths=[250, 160, 120])
             t_summary.setStyle(TableStyle([
@@ -378,7 +397,7 @@ class DownloadInvoicePDFView(APIView):
             footer_data = [
                 [
                     Paragraph("<b>Declaration:</b><br/>We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", normal_style),
-                    Paragraph("<b>For MegaStore Retail India Pvt Ltd</b><br/><br/><i>Authorized Signatory</i>", normal_style)
+                    Paragraph("<b>For OrbisKart Retail India Pvt Ltd</b><br/><br/><i>Authorized Signatory</i>", normal_style)
                 ]
             ]
             t_foot = Table(footer_data, colWidths=[310, 220])
@@ -397,21 +416,9 @@ class DownloadInvoicePDFView(APIView):
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        # --- Product Detail API ---
-class ProductDetailView(APIView):
-    permission_classes = [permissions.AllowAny]
 
-    def get(self, request, pk):
-        try:
-            product = Product.objects.select_related('category').prefetch_related('reviews__user').filter(pk=pk).first()
-            if not product:
-                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
-            serializer = ProductSerializer(product)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# --- Add Review API (Verified Buyer Check) ---
+# --- Add Review API ---
 class AddProductReviewView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -426,7 +433,7 @@ class AddProductReviewView(APIView):
             comment = request.data.get('comment', '').strip()
 
             if not comment:
-                return Response({'error': 'कृपया अपनी समीक्षा (कमेंट) लिखें।'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'कृपया अपनी समीक्षा लिखें।'}, status=status.HTTP_400_BAD_REQUEST)
 
             if rating < 1 or rating > 5:
                 return Response({'error': 'रेटिंग 1 से 5 स्टार के बीच होनी चाहिए।'}, status=status.HTTP_400_BAD_REQUEST)
@@ -438,7 +445,7 @@ class AddProductReviewView(APIView):
                 comment=comment
             )
 
-            serializer = ReviewSerializer(review)
+            serializer = ReviewSerializer(review, context={'request': request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
