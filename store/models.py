@@ -190,3 +190,81 @@ class Review(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.product.title} ({self.rating}★)"
+from django.db import models
+from django.contrib.auth.models import User
+from decimal import Decimal, ROUND_HALF_UP
+
+# 1. डायनामिक कैटेगरी टैक्स एवं कमीशन नीति
+class CategoryPolicy(models.Model):
+    name = models.CharField(max_length=100, unique=True)  # उदा. Electronics, Clothing, Grocery
+    hsn_code = models.CharField(max_length=20, default='851830')
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=18.00)  # 0%, 5%, 12%, 18%, 28%
+    platform_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=3.00)  # 3%
+    settlement_days = models.IntegerField(default=7)  # 7 वर्किंग डेज
+
+    def __str__(self):
+        return f"{self.name} (GST: {self.gst_rate}%, Platform: {self.platform_fee_percent}%)"
+
+# 2. वजन और ज़ोन के आधार पर कूरियर दर कार्ड
+class ShippingRateCard(models.Model):
+    max_weight_grams = models.IntegerField(default=500, unique=True)  # 500g, 1000g, 2000g, 5000g
+    forward_charge = models.DecimalField(max_digits=7, decimal_places=2, default=50.00)
+    rto_charge = models.DecimalField(max_digits=7, decimal_places=2, default=40.00)
+
+    def __str__(self):
+        return f"Up to {self.max_weight_grams}g - Forward: ₹{self.forward_charge}, RTO: ₹{self.rto_charge}"
+
+# 3. स्थायी पारदर्शी उत्पाद मॉडल (Updated)
+class Product(models.Model):
+    seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    original_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    weight_grams = models.IntegerField(default=300)
+    policy = models.ForeignKey(CategoryPolicy, on_delete=models.SET_NULL, null=True, blank=True)
+    image = models.ImageField(upload_to='products/', null=True, blank=True)
+    stock = models.IntegerField(default=10)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def calculate_transparency_ledger(self):
+        gross = Decimal(str(self.price))
+        gst_percent = self.policy.gst_rate if self.policy else Decimal('18.00')
+        platform_percent = self.policy.platform_fee_percent if self.policy else Decimal('3.00')
+        settlement = self.policy.settlement_days if self.policy else 7
+
+        gst_divisor = Decimal('1') + (gst_percent / Decimal('100'))
+        taxable_base = (gross / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        product_gst = gross - taxable_base
+
+        pg_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        pg_tax = (pg_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_pg = pg_fee + pg_tax
+
+        plat_fee = (gross * (platform_percent / Decimal('100'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        plat_tax = (plat_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_platform = plat_fee + plat_tax
+
+        shipping_card = ShippingRateCard.objects.filter(
+            max_weight_grams__gte=self.weight_grams
+        ).order_by('max_weight_grams').first()
+
+        fwd_ship = shipping_card.forward_charge if shipping_card else Decimal('50.00')
+        rto_cost = shipping_card.rto_charge if shipping_card else Decimal('40.00')
+
+        net_payout = gross - total_pg - total_platform - fwd_ship
+
+        return {
+            "gross_price": float(gross),
+            "gst_amount": float(product_gst),
+            "gst_rate": float(gst_percent),
+            "gateway_charge": float(total_pg),
+            "platform_fee": float(total_platform),
+            "forward_courier": float(fwd_ship),
+            "rto_penalty_risk": float(rto_cost),
+            "net_seller_payout": float(net_payout),
+            "settlement_period": f"{settlement} वर्किंग डेज"
+        }
+
+    def __str__(self):
+        return self.title
