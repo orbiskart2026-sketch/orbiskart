@@ -77,9 +77,21 @@ admin.site.register(Category)
 admin.site.register(Order)
 admin.site.register(Cart)
 admin.site.register(CartItem)
-admin.site.register(Review)from django.contrib import admin
-from .models import CategoryPolicy, ShippingRateCard, Product
+admin.site.register(Category)
+admin.site.register(Order)
+admin.site.register(Cart)
+admin.site.register(CartItem)
+admin.site.register(Review)
 
+from .models import CategoryPolicy, ShippingRateCard
+
+@admin.register(CategoryPolicy)
+class CategoryPolicyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
+
+@admin.register(ShippingRateCard)
+class ShippingRateCardAdmin(admin.ModelAdmin):
+    list_display = ('max_weight_grams', 'forward_charge', 'rto_charge')
 @admin.register(CategoryPolicy)
 class CategoryPolicyAdmin(admin.ModelAdmin):
     list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
