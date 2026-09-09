@@ -1,4 +1,5 @@
 import io
+import random
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import models, transaction
@@ -8,17 +9,21 @@ from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from .models import Category, Product, Cart, CartItem, Order, OrderItem, Review
-from .serializers import ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
+from .models import Category, CategoryPolicy, ShippingRateCard, Product, Cart, CartItem, Order, OrderItem, Review
+from .serializers import (
+    CategorySerializer, CategoryPolicySerializer,
+    ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
+)
 
 
-# --- User Registration API ---
+# --- 1. User Registration API ---
 class RegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -38,15 +43,16 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- Product List API (With Search, Category & Sorting Filters) ---
+# --- 2. Product List & Seller Upload API ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         try:
-            queryset = Product.objects.select_related('category').all()
+            queryset = Product.objects.select_related('category', 'category_policy').all()
 
-            # 1. Search Query
+            # सर्च फ़िल्टर
             search_query = request.query_params.get('search', '').strip()
             if search_query:
                 queryset = queryset.filter(
@@ -54,12 +60,12 @@ class ProductListView(APIView):
                     models.Q(description__icontains=search_query)
                 )
 
-            # 2. Category Filter
+            # कैटेगरी फ़िल्टर
             category_id = request.query_params.get('category', '').strip()
             if category_id and category_id.lower() != 'all':
                 queryset = queryset.filter(category_id=category_id)
 
-            # 3. Price Sorting
+            # सॉर्टिंग
             sort_by = request.query_params.get('sort', '').strip()
             if sort_by == 'price_low':
                 queryset = queryset.order_by('price')
@@ -79,14 +85,29 @@ class ProductListView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    # सेलर मोबाइल ऐप से डायरेक्ट अपलोड
+    def post(self, request):
+        try:
+            data = request.data.copy()
+            serializer = ProductSerializer(data=data, context={'request': request})
+            if serializer.is_valid():
+                if request.user.is_authenticated:
+                    serializer.save(seller=request.user)
+                else:
+                    serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# --- Product Detail API (Auto-fetch by ID) ---
+
+# --- 3. Product Detail API ---
 class ProductDetailView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request, pk):
         try:
-            product = Product.objects.select_related('category').prefetch_related('reviews__user').filter(pk=pk).first()
+            product = Product.objects.select_related('category', 'category_policy').prefetch_related('reviews__user').filter(pk=pk).first()
             if not product:
                 return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
             serializer = ProductSerializer(product, context={'request': request})
@@ -95,7 +116,7 @@ class ProductDetailView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Cart View API ---
+# --- 4. Cart Operations API ---
 class CartView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -108,7 +129,6 @@ class CartView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Add to Cart API ---
 class AddToCartView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -122,7 +142,6 @@ class AddToCartView(APIView):
                 return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
 
             cart, _ = Cart.objects.get_or_create(user=request.user)
-
             cart_item, created = CartItem.objects.get_or_create(cart=cart, product=product)
             if not created:
                 cart_item.quantity += quantity
@@ -135,7 +154,6 @@ class AddToCartView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Update Cart Quantity API ---
 class UpdateCartItemView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -163,7 +181,6 @@ class UpdateCartItemView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Remove from Cart API ---
 class RemoveFromCartView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -180,7 +197,7 @@ class RemoveFromCartView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Order Checkout API ---
+# --- 5. Order Checkout with Auto-Generated Delivery/Return OTP ---
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -212,6 +229,10 @@ class CreateOrderView(APIView):
             discount_amount = max(Decimal('0.00'), original_subtotal - subtotal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             total_price = subtotal + delivery_fee
 
+            # 6-अंकीय सुरक्षित डिलीवरी व रिटर्न OTP जनरेशन
+            delivery_otp = f"{random.randint(100000, 999999)}"
+            return_otp = f"{random.randint(100000, 999999)}"
+
             with transaction.atomic():
                 order = Order.objects.create(
                     user=user,
@@ -222,13 +243,17 @@ class CreateOrderView(APIView):
                     total_price=total_price,
                     payment_method=payment_method,
                     shipping_address=shipping_address,
-                    status='Confirmed' if payment_method == 'COD' else 'Pending Payment'
+                    status='Confirmed' if payment_method == 'COD' else 'Pending Payment',
+                    delivery_otp=delivery_otp,
+                    return_otp=return_otp,
+                    awb_number=f"DEL-{random.randint(10000000, 99999999)}"
                 )
 
                 order_items_to_create = [
                     OrderItem(
                         order=order,
                         product=item.product,
+                        vendor=item.product.vendor,
                         price=item.product.price,
                         quantity=item.quantity
                     )
@@ -240,14 +265,51 @@ class CreateOrderView(APIView):
             return Response({
                 'message': 'Order placed successfully',
                 'order_id': order.id,
-                'status': order.status
+                'status': order.status,
+                'delivery_otp': order.delivery_otp
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- User Orders List API ---
+# --- 6. Fraud Prevention: 2-Way OTP Verification API ---
+class VerifyOrderOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, order_id):
+        try:
+            order = Order.objects.filter(id=order_id).first()
+            if not order:
+                return Response({'error': 'ऑर्डर नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
+
+            otp_type = request.data.get('type', 'DELIVERY')  # 'DELIVERY' या 'RETURN'
+            entered_otp = str(request.data.get('otp', '')).strip()
+
+            if not entered_otp:
+                return Response({'error': 'OTP दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if otp_type == 'DELIVERY':
+                if str(order.delivery_otp).strip() == entered_otp:
+                    order.status = 'Delivered'
+                    order.save()
+                    return Response({'success': True, 'message': f'ऑर्डर #{order.id} सफलतापूर्वक डिलीवर हुआ।'}, status=status.HTTP_200_OK)
+                return Response({'error': 'गलत डिलीवरी OTP! पार्सल न दें।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            elif otp_type == 'RETURN':
+                if str(order.return_otp).strip() == entered_otp:
+                    order.status = 'Returned & Refunded'
+                    order.save()
+                    return Response({'success': True, 'message': f'ऑर्डर #{order.id} का रिटर्न सत्यापित हुआ। रिफंड जारी किया जा रहा है।'}, status=status.HTTP_200_OK)
+                return Response({'error': 'गलत रिटर्न OTP! पार्सल स्वीकार न करें।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({'error': 'अमान्य सत्यापन अनुरोध'}, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- 7. User Orders List API ---
 class UserOrdersListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -260,7 +322,7 @@ class UserOrdersListView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 1-Click GST Tax Invoice PDF Generator ---
+# --- 8. 1-Click GST Tax Invoice PDF Generator ---
 class DownloadInvoicePDFView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -299,7 +361,7 @@ class DownloadInvoicePDFView(APIView):
                 textColor=colors.HexColor('#111827')
             )
 
-            # Header Banner (OrbisKart Branding)
+            # Header Banner
             header_data = [
                 [
                     Paragraph("<b>OrbisKart Retail India Pvt Ltd</b><br/>GSTIN: <b>20AAACM1234F1Z5</b><br/>State: Jharkhand (Code: 20)", normal_style),
@@ -318,7 +380,7 @@ class DownloadInvoicePDFView(APIView):
             customer_data = [
                 [
                     Paragraph("<b>Bill To / Ship To:</b><br/>" + str(order.user.username) + "<br/>" + str(order.shipping_address or 'N/A'), normal_style),
-                    Paragraph("<b>Order Details:</b><br/><b>Order ID:</b> #" + str(order.id) + "<br/><b>Payment Mode:</b> " + str(order.payment_method) + "<br/><b>Status:</b> " + str(order.status), normal_style)
+                    Paragraph("<b>Order Details:</b><br/><b>Order ID:</b> #" + str(order.id) + "<br/><b>AWB:</b> " + str(order.awb_number or 'N/A') + "<br/><b>Payment Mode:</b> " + str(order.payment_method) + "<br/><b>Status:</b> " + str(order.status), normal_style)
                 ]
             ]
             t_cust = Table(customer_data, colWidths=[270, 260])
@@ -377,7 +439,7 @@ class DownloadInvoicePDFView(APIView):
             story.append(t_items)
             story.append(Spacer(1, 12))
 
-            # Summary Totals
+            # Totals
             summary_data = [
                 ["", Paragraph("<b>Taxable Base Amount:</b>", normal_style), Paragraph(f"Rs. {order.base_price}", normal_style)],
                 ["", Paragraph("<b>Total GST (18%):</b>", normal_style), Paragraph(f"Rs. {order.tax_amount}", normal_style)],
@@ -418,7 +480,7 @@ class DownloadInvoicePDFView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- Add Review API ---
+# --- 9. Add Review API ---
 class AddProductReviewView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
