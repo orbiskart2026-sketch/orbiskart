@@ -12,13 +12,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    
-    # 1. बिना api/ के सीधा रूट
-    path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-root'),
-    
-    # 2. api/ के साथ सीधा रूट
-    path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-api'),
-    
+    path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco_master_ledger_api'),
+    path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco_master_ledger_direct'),
     path('api/', include('store.urls')),
 ]
 
