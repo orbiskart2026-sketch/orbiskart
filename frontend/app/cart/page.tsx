@@ -16,7 +16,7 @@ interface CartItem {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
-const RAZORPAY_KEY_ID = 'rzp_live_TYKZhqjKUBOWGD';
+const RAZORPAY_KEY_ID = 'rzp_live_TbrAevwYL3iVMI';
 
 export default function CartPage() {
   const router = useRouter();
@@ -51,7 +51,7 @@ export default function CartPage() {
       console.error(e);
     }
 
-    // 2. बैकएंड से सिंक करने का प्रयास
+    // 2. बैकएंड से सिंक करने का प्रयास (Auth Token के साथ)
     const token = localStorage.getItem('access_token');
     if (token) {
       try {
@@ -150,6 +150,15 @@ export default function CartPage() {
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // लॉगिन की सख्त जाँच
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      alert('कृपया ऑर्डर करने से पहले अपने अकाउंट में लॉगिन करें।');
+      router.push('/login');
+      return;
+    }
+
     if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
       alert('कृपया पूरा डिलीवरी पता भरें।');
       return;
@@ -168,7 +177,7 @@ export default function CartPage() {
       return;
     }
 
-    // 2. Razorpay Online
+    // 2. Razorpay SDK की जाँच
     if (typeof window === 'undefined' || !(window as any).Razorpay) {
       alert('Razorpay लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
       setSubmitting(false);
@@ -176,16 +185,20 @@ export default function CartPage() {
     }
 
     try {
-      const orderRes = await fetch('/api/razorpay', {
+      // सही Django बैकएंड एंडपॉइंट और ऑथराइजेशन टोकन
+      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order/`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({ amount: totalAmount }),
       });
 
       const orderData = await orderRes.json();
 
       if (!orderRes.ok || !orderData.id) {
-        alert(orderData.error || 'पेमेंट इनिशियलाइज़ नहीं हो सका।');
+        alert(orderData.error || orderData.detail || 'पेमेंट इनिशियलाइज़ नहीं हो सका। कृपया दोबारा लॉगिन करें।');
         setSubmitting(false);
         return;
       }
@@ -197,7 +210,20 @@ export default function CartPage() {
         name: 'OrbisKart',
         description: `Order Payment by ${fullName}`,
         order_id: orderData.id,
-        handler: function (response: any) {
+        handler: async function (response: any) {
+          try {
+            // बैकएंड पर पेमेंट वेरिफिकेशन
+            await fetch(`${API_BASE_URL}/api/payment/verify/`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify(response),
+            });
+          } catch (err) {
+            console.error('वेरिफिकेशन कॉल एरर:', err);
+          }
           finishOrder('Razorpay Online', response.razorpay_payment_id);
         },
         prefill: {
@@ -224,7 +250,6 @@ export default function CartPage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
@@ -394,7 +419,7 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Cart Items List */}
+              {/* Cart Items */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🛍️</span> 3. Cart Items ({items.length})
