@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import Script from 'next/script';
 
 interface CartItem {
   id: number;
@@ -23,6 +24,7 @@ export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [razorpayReady, setRazorpayReady] = useState(false);
 
   // Delivery Address State
   const [fullName, setFullName] = useState('');
@@ -52,7 +54,7 @@ export default function CartPage() {
     }
 
     // 2. बैकएंड से सिंक करने का प्रयास (Auth Token के साथ)
-    const token = localStorage.getItem('access_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
     if (token) {
       try {
         const res = await fetch(`${API_BASE_URL}/api/cart/`, {
@@ -77,6 +79,11 @@ export default function CartPage() {
 
   useEffect(() => {
     loadCartData();
+
+    // पहले से मौजूद Razorpay SDK की जाँच
+    if (typeof window !== 'undefined' && (window as any).Razorpay) {
+      setRazorpayReady(true);
+    }
 
     const savedAddr = localStorage.getItem('user_shipping_address');
     if (savedAddr) {
@@ -151,14 +158,6 @@ export default function CartPage() {
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // लॉगिन की सख्त जाँच
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      alert('कृपया ऑर्डर करने से पहले अपने अकाउंट में लॉगिन करें।');
-      router.push('/login');
-      return;
-    }
-
     if (!fullName || !phone || !streetAddress || !district || !stateName || !pincode) {
       alert('कृपया पूरा डिलीवरी पता भरें।');
       return;
@@ -177,28 +176,33 @@ export default function CartPage() {
       return;
     }
 
-    // 2. Razorpay SDK की जाँच
+    // 2. Razorpay SDK लोड होने की पुष्टि
     if (typeof window === 'undefined' || !(window as any).Razorpay) {
-      alert('Razorpay लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
+      alert('Razorpay गेटवे लोड हो रहा है, कृपया 3 सेकंड बाद दोबारा क्लिक करें।');
       setSubmitting(false);
       return;
     }
 
     try {
-      // सही Django बैकएंड एंडपॉइंट और ऑथराइजेशन टोकन
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order/`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: headers,
         body: JSON.stringify({ amount: totalAmount }),
       });
 
       const orderData = await orderRes.json();
 
       if (!orderRes.ok || !orderData.id) {
-        alert(orderData.error || orderData.detail || 'पेमेंट इनिशियलाइज़ नहीं हो सका। कृपया दोबारा लॉगिन करें।');
+        alert(orderData.error || orderData.detail || 'सर्वर से Razorpay Order ID नहीं मिल सकी।');
         setSubmitting(false);
         return;
       }
@@ -212,17 +216,13 @@ export default function CartPage() {
         order_id: orderData.id,
         handler: async function (response: any) {
           try {
-            // बैकएंड पर पेमेंट वेरिफिकेशन
             await fetch(`${API_BASE_URL}/api/payment/verify/`, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
+              headers: headers,
               body: JSON.stringify(response),
             });
           } catch (err) {
-            console.error('वेरिफिकेशन कॉल एरर:', err);
+            console.error('Payment verification warning:', err);
           }
           finishOrder('Razorpay Online', response.razorpay_payment_id);
         },
@@ -241,15 +241,22 @@ export default function CartPage() {
 
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
-    } catch (err) {
-      console.error(err);
-      alert('पेमेंट शुरू करने में समस्या आई।');
+    } catch (err: any) {
+      console.error('Checkout error details:', err);
+      alert(`पेमेंट शुरू करने में समस्या आई: ${err?.message || 'कनेक्शन एरर'}`);
       setSubmitting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
+      {/* Razorpay आधिकारिक SDK ऑटो-लोडर */}
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="lazyOnload"
+        onLoad={() => setRazorpayReady(true)}
+      />
+
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="text-2xl font-black text-blue-600">
