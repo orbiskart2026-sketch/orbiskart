@@ -5,7 +5,7 @@ export async function POST(req: Request) {
     const { amount } = await req.json();
 
     const keyId = 'rzp_live_TbrAevwYL3iVMI';
-    const keySecret = '57FOsB6kvoUCYz0I9f8EJZJO';
+    const keySecret = '6kjRAntsGRg5bjLPlTR63FYh';
 
     const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
 
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
         Authorization: authHeader,
       },
       body: JSON.stringify({
-        amount: Math.round(Number(amount) * 100), // पैसे में
+        amount: Math.round(Number(amount) * 100), // पैसे में (Razorpay format)
         currency: 'INR',
         receipt: `receipt_${Date.now()}`,
       }),
