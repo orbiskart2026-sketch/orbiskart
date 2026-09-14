@@ -29,4 +29,11 @@ urlpatterns = [
 
     # 8. रिव्यू और रेटिंग सबमिशन
     path('products/<int:pk>/reviews/add/', views.AddProductReviewView.as_view(), name='api-add-review'),
+
+    # 9. सेलर हब डैशबोर्ड एवं वित्तीय पारदर्शिता समरी (👑 हब टैब के लिए)
+    path('seller/dashboard/', views.SellerDashboardSummaryView.as_view(), name='api-seller-dashboard'),
+
+    # 10. Razorpay ऑनलाइन पेमेंट गेटवे
+    path('payment/create-order/', views.CreateRazorpayOrderView.as_view(), name='api-razorpay-order'),
+    path('payment/verify/', views.VerifyRazorpayPaymentView.as_view(), name='api-razorpay-verify'),
 ]

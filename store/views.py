@@ -5,18 +5,25 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import models, transaction
 from django.http import HttpResponse
 from django.contrib.auth.models import User
+from django.conf import settings
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
+import razorpay
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from .models import Category, CategoryPolicy, ShippingRateCard, Product, Cart, CartItem, Order, OrderItem, Review
+from .models import (
+    Category, CategoryPolicy, ShippingRateCard, Product, 
+    Cart, CartItem, Order, OrderItem, Review, 
+    VendorProfile, SellerDeductionSlip
+)
 from .serializers import (
     CategorySerializer, CategoryPolicySerializer,
     ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
@@ -52,7 +59,6 @@ class ProductListView(APIView):
         try:
             queryset = Product.objects.select_related('category', 'category_policy').all()
 
-            # सर्च फ़िल्टर
             search_query = request.query_params.get('search', '').strip()
             if search_query:
                 queryset = queryset.filter(
@@ -60,12 +66,10 @@ class ProductListView(APIView):
                     models.Q(description__icontains=search_query)
                 )
 
-            # कैटेगरी फ़िल्टर
             category_id = request.query_params.get('category', '').strip()
             if category_id and category_id.lower() != 'all':
                 queryset = queryset.filter(category_id=category_id)
 
-            # सॉर्टिंग
             sort_by = request.query_params.get('sort', '').strip()
             if sort_by == 'price_low':
                 queryset = queryset.order_by('price')
@@ -85,7 +89,6 @@ class ProductListView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # सेलर मोबाइल ऐप से डायरेक्ट अपलोड
     def post(self, request):
         try:
             data = request.data.copy()
@@ -229,7 +232,6 @@ class CreateOrderView(APIView):
             discount_amount = max(Decimal('0.00'), original_subtotal - subtotal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             total_price = subtotal + delivery_fee
 
-            # 6-अंकीय सुरक्षित डिलीवरी व रिटर्न OTP जनरेशन
             delivery_otp = f"{random.randint(100000, 999999)}"
             return_otp = f"{random.randint(100000, 999999)}"
 
@@ -266,7 +268,8 @@ class CreateOrderView(APIView):
                 'message': 'Order placed successfully',
                 'order_id': order.id,
                 'status': order.status,
-                'delivery_otp': order.delivery_otp
+                'delivery_otp': order.delivery_otp,
+                'total_price': str(order.total_price)
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -283,7 +286,7 @@ class VerifyOrderOTPView(APIView):
             if not order:
                 return Response({'error': 'ऑर्डर नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
 
-            otp_type = request.data.get('type', 'DELIVERY')  # 'DELIVERY' या 'RETURN'
+            otp_type = request.data.get('type', 'DELIVERY')
             entered_otp = str(request.data.get('otp', '')).strip()
 
             if not entered_otp:
@@ -361,7 +364,6 @@ class DownloadInvoicePDFView(APIView):
                 textColor=colors.HexColor('#111827')
             )
 
-            # Header Banner
             header_data = [
                 [
                     Paragraph("<b>OrbisKart Retail India Pvt Ltd</b><br/>GSTIN: <b>20AAACM1234F1Z5</b><br/>State: Jharkhand (Code: 20)", normal_style),
@@ -376,7 +378,6 @@ class DownloadInvoicePDFView(APIView):
             story.append(t_header)
             story.append(Spacer(1, 10))
 
-            # Customer & Shipping Section
             customer_data = [
                 [
                     Paragraph("<b>Bill To / Ship To:</b><br/>" + str(order.user.username) + "<br/>" + str(order.shipping_address or 'N/A'), normal_style),
@@ -393,7 +394,6 @@ class DownloadInvoicePDFView(APIView):
             story.append(t_cust)
             story.append(Spacer(1, 15))
 
-            # Items Table
             table_rows = [
                 [
                     Paragraph("<b>#</b>", bold_style),
@@ -439,7 +439,6 @@ class DownloadInvoicePDFView(APIView):
             story.append(t_items)
             story.append(Spacer(1, 12))
 
-            # Totals
             summary_data = [
                 ["", Paragraph("<b>Taxable Base Amount:</b>", normal_style), Paragraph(f"Rs. {order.base_price}", normal_style)],
                 ["", Paragraph("<b>Total GST (18%):</b>", normal_style), Paragraph(f"Rs. {order.tax_amount}", normal_style)],
@@ -455,7 +454,6 @@ class DownloadInvoicePDFView(APIView):
             story.append(t_summary)
             story.append(Spacer(1, 25))
 
-            # Footer
             footer_data = [
                 [
                     Paragraph("<b>Declaration:</b><br/>We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", normal_style),
@@ -509,5 +507,155 @@ class AddProductReviewView(APIView):
 
             serializer = ReviewSerializer(review, context={'request': request})
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- 10. Seller Hub & Transparency Dashboard Summary API ---
+class SellerDashboardSummaryView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        try:
+            profile = VendorProfile.objects.get(user=request.user)
+            
+            # वेंडर के ऑर्डर्स निकालना
+            seller_orders = Order.objects.filter(items__vendor=profile).distinct()
+            
+            total_orders = seller_orders.count()
+            delivered_orders = seller_orders.filter(status='Delivered').count()
+            returned_orders = seller_orders.filter(status__icontains='Return').count()
+            
+            # हालिया कटौती स्लिप्स
+            recent_slips = SellerDeductionSlip.objects.filter(vendor=profile).order_by('-created_at')[:10]
+            slips_data = [
+                {
+                    "slip_number": slip.slip_number,
+                    "order_id": slip.order_id,
+                    "gross_amount": str(slip.gross_order_amount),
+                    "deductions": str(slip.courier_charge + slip.platform_and_pg_fee + slip.rto_risk_deduction),
+                    "net_settled": str(slip.final_settlement_amount),
+                    "is_settled": slip.is_settled_to_bank,
+                    "utr": slip.settlement_reference_utr or "Pending"
+                }
+                for slip in recent_slips
+            ]
+            
+            return Response({
+                "store_name": profile.store_name,
+                "is_approved": profile.is_approved,
+                "is_orbiskart_mall": profile.is_orbiskart_mall,
+                "wallet_balance": str(profile.wallet_balance),
+                "quality_score": str(profile.quality_score),
+                "orders_summary": {
+                    "total": total_orders,
+                    "delivered": delivered_orders,
+                    "returns": returned_orders
+                },
+                "banking": {
+                    "bank_name": profile.bank_name or "N/A",
+                    "account_masked": f"XXXXXX{profile.bank_account_number[-4:]}" if len(profile.bank_account_number) >= 4 else "N/A",
+                    "ifsc": profile.bank_ifsc_code or "N/A",
+                    "is_verified": profile.bank_account_verified
+                },
+                "support": {
+                    "it_call_no": "+91-1800-889-2026",
+                    "support_email": "seller-priority@orbiskart.com"
+                },
+                "deduction_slips": slips_data
+            }, status=status.HTTP_200_OK)
+            
+        except VendorProfile.DoesNotExist:
+            return Response({"error": "सेलर/वेंडर प्रोफ़ाइल नहीं मिली।"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- 11. Razorpay: Create Order API ---
+class CreateRazorpayOrderView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            amount = request.data.get('amount')
+            if not amount:
+                return Response({'error': 'राशि दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            
+            payment_data = {
+                'amount': int(float(amount) * 100),
+                'currency': 'INR',
+                'payment_capture': '1'
+            }
+            
+            razorpay_order = client.order.create(data=payment_data)
+
+            return Response({
+                'razorpay_order_id': razorpay_order['id'],
+                'amount': razorpay_order['amount'],
+                'currency': razorpay_order['currency'],
+                'key_id': settings.RAZORPAY_KEY_ID
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# --- 12. Razorpay: Verify Payment & Auto Ledger Entry API ---
+class VerifyRazorpayPaymentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            razorpay_order_id = request.data.get('razorpay_order_id')
+            razorpay_payment_id = request.data.get('razorpay_payment_id')
+            razorpay_signature = request.data.get('razorpay_signature')
+            order_id = request.data.get('order_id')
+
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            
+            # सिग्नेचर का सत्यापन (Signature Verification)
+            client.utility.verify_payment_signature({
+                'razorpay_order_id': razorpay_order_id,
+                'razorpay_payment_id': razorpay_payment_id,
+                'razorpay_signature': razorpay_signature
+            })
+
+            order = Order.objects.filter(id=order_id).first()
+            if not order:
+                return Response({'error': 'ऑर्डर नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
+
+            order.status = 'Confirmed'
+            order.payment_method = 'Razorpay-Prepaid'
+            order.save()
+
+            # वेंडर्स के लिए पारदर्शी वित्तीय लेजर (SellerDeductionSlip) जनरेट करना
+            for item in order.items.select_related('vendor').all():
+                if item.vendor:
+                    gross = item.price * item.quantity
+                    pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    courier_charge = Decimal('50.00')
+                    net_settled = gross - pg_charge - courier_charge
+
+                    SellerDeductionSlip.objects.create(
+                        vendor=item.vendor,
+                        order_id=f"ORB-{order.id}",
+                        slip_number=f"SLIP-{order.id}-{item.id}",
+                        gross_order_amount=gross,
+                        courier_charge=courier_charge,
+                        platform_and_pg_fee=pg_charge,
+                        rto_risk_deduction=Decimal('0.00'),
+                        final_settlement_amount=max(Decimal('0.00'), net_settled),
+                        is_settled_to_bank=False
+                    )
+
+            return Response({
+                'success': True,
+                'message': 'भुगतान सफलतापूर्वक सत्यापित हुआ एवं ऑर्डर कन्फर्म हो गया।'
+            }, status=status.HTTP_200_OK)
+
+        except razorpay.errors.SignatureVerificationError:
+            return Response({'error': 'भुगतान सत्यापन विफल: अमान्य सिग्नेचर।'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

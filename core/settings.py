@@ -195,3 +195,8 @@ SIMPLE_JWT = {
 }
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# ==========================================
+# Razorpay Payment Gateway (Test Environment)
+# ==========================================
+RAZORPAY_KEY_ID = 'rzp_test_1DP5mmOlF5G5ag'
+RAZORPAY_KEY_SECRET = 's3cr3tT3stK3y0rb1skart2026'
