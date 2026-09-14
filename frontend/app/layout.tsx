@@ -1,10 +1,20 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import './globals.css';
 
+export const viewport: Viewport = {
+  themeColor: '#2563eb',
+};
+
 export const metadata: Metadata = {
-  title: "OrbisKart - India's Trusted Shopping Destination",
-  description: 'Shop sarees, suits, jewellery, fashion, electronics and more.',
+  title: "OrbisKart - India's Trusted Marketplace & Pay Hub",
+  description: 'Zero Hidden Charges Online Shopping, Bill Payments & Recharges',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'OrbisKart',
+  },
 };
 
 export default function RootLayout({
@@ -16,7 +26,7 @@ export default function RootLayout({
     <html lang="hi" suppressHydrationWarning>
       <body className="antialiased">
         {children}
-        
+
         {/* Razorpay पेमेंट चेकआउट SDK */}
         <Script
           id="razorpay-checkout-sdk"
