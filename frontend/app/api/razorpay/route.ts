@@ -4,7 +4,7 @@ export async function POST(req: Request) {
   try {
     const { amount } = await req.json();
 
-    const keyId = 'rzp_live_TYKZhqjKUBOWGD';
+    const keyId = 'rzp_live_TbrAevwYL3iVMI';
     const keySecret = '57FOsB6kvoUCYz0I9f8EJZJO';
 
     const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
