@@ -1,13 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
 
-const getSupabase = () => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
-  return createClient(url, key);
-};
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 
 export default function UnifiedMasterAdmin() {
   const [auth, setAuth] = useState(false);
@@ -24,21 +19,30 @@ export default function UnifiedMasterAdmin() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // डिफ़ॉल्ट रिकवरी मास्टर पिन (आपातकाल के लिए)
+  // डिफ़ॉल्ट रिकवरी मास्टर पिन
   const MASTER_RECOVERY_PIN = '123456';
 
-  // स्थानीय स्टोरेज से पासवर्ड लोड/सेट करना
   useEffect(() => {
     if (!localStorage.getItem('orbiskart_admin_user')) {
       localStorage.setItem('orbiskart_admin_user', 'admin');
     }
     if (!localStorage.getItem('orbiskart_admin_pass')) {
-      localStorage.setItem('orbiskart_admin_pass', 'admin123'); // आसान डिफ़ॉल्ट
+      localStorage.setItem('orbiskart_admin_pass', 'admin123');
     }
   }, []);
 
   const [tab, setTab] = useState<'audit' | 'sellers' | 'orders' | 'charges'>('audit');
   const [ledgers, setLedgers] = useState<any[]>([]);
+  const [kpiSummary, setKpiSummary] = useState({
+    gross_sales: 0,
+    company_net_profit: 0,
+    gst_pool_18: 0,
+    tcs_pool_1: 0,
+    gateway_pool_2: 0,
+    seller_payable_total: 0,
+  });
+  const [loadingLedger, setLoadingLedger] = useState(false);
+
   const [sellers, setSellers] = useState<any[]>([
     {
       id: 'SEL-101',
@@ -51,7 +55,7 @@ export default function UnifiedMasterAdmin() {
       bank_acc: '50100234567890',
       ifsc: 'HDFC0001234',
       status: 'Verified',
-      commission_rate: 5.0
+      commission_rate: 3.0
     }
   ]);
 
@@ -71,7 +75,7 @@ export default function UnifiedMasterAdmin() {
     if (username === savedUser && password === savedPass) {
       setAuth(true);
       setError('');
-      fetchLedger();
+      fetchLiveLedger();
     } else {
       setError('गलत ID या पासवर्ड! यदि भूल गए हैं तो नीचे "पासवर्ड रीसेट करें" पर क्लिक करें।');
     }
@@ -102,20 +106,22 @@ export default function UnifiedMasterAdmin() {
     setConfirmPassword('');
   };
 
-  const fetchLedger = async () => {
+  // वास्तविक डेटाबेस से लाइव वित्तीय लेजर लोड करना
+  const fetchLiveLedger = async () => {
     try {
-      const supabase = getSupabase();
-      const { data } = await supabase.from('audit_ledgers').select('*').order('created_at', { ascending: false });
-      if (data) setLedgers(data);
+      setLoadingLedger(true);
+      const res = await fetch(`${API_BASE_URL}/api/admin/eco-master-ledger/`);
+      if (res.ok) {
+        const data = await res.json();
+        setKpiSummary(data.kpi_summary);
+        setLedgers(data.audit_records);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('लेजर लोड करने में त्रुटि:', err);
+    } finally {
+      setLoadingLedger(false);
     }
   };
-
-  const totalGross = ledgers.reduce((a, b) => a + Number(b.gross_amount || 0), 0);
-  const totalPlatformEarned = ledgers.reduce((a, b) => a + Number(b.platform_fee || 0), 0);
-  const totalGST = ledgers.reduce((a, b) => a + Number(b.gst_tax || 0), 0);
-  const totalSellerPayout = ledgers.reduce((a, b) => a + Number(b.net_seller_payout || 0), 0);
 
   if (!auth) {
     return (
@@ -129,7 +135,6 @@ export default function UnifiedMasterAdmin() {
           {error && <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-300 text-xs font-medium">{error}</div>}
           {successMsg && <div className="mb-4 p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs font-medium">{successMsg}</div>}
 
-          {/* लॉगिन व्यू */}
           {view === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
@@ -174,7 +179,6 @@ export default function UnifiedMasterAdmin() {
             </form>
           )}
 
-          {/* पासवर्ड रीसेट व्यू */}
           {view === 'reset' && (
             <form onSubmit={handleResetPassword} className="space-y-4">
               <div>
@@ -236,10 +240,18 @@ export default function UnifiedMasterAdmin() {
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap justify-between items-center gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-wide">OrbisKart Unified Admin</h1>
-          <p className="text-xs text-slate-400">विक्रेता ऑडिट • कूरियर ट्रैकिंग • लेजर एवं नीतियां</p>
+          <h1 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
+            <span>🛡️</span> OrbisKart Unified Admin
+          </h1>
+          <p className="text-xs text-slate-400">विक्रेता ऑडिट • कूरियर ट्रैकिंग • लेजर एवं नीतियां (Govt Sec-52 Compliant)</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={fetchLiveLedger}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-white transition"
+          >
+            🔄 रीफ़्रेश लेजर
+          </button>
           <a
             href="https://orbiskart.onrender.com/admin"
             target="_blank"
@@ -288,61 +300,69 @@ export default function UnifiedMasterAdmin() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सकल बिक्री</div>
-                <div className="text-2xl font-bold text-white mt-1">₹{totalGross.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-white mt-1">₹{kpiSummary.gross_sales.toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400 uppercase font-bold">प्लेटफ़ॉर्म लाभ</div>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">₹{totalPlatformEarned.toFixed(2)}</div>
+                <div className="text-xs text-slate-400 uppercase font-bold">प्लेटफ़ॉर्म लाभ (3%)</div>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">₹{kpiSummary.company_net_profit.toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">देय GST लेवी (18%)</div>
-                <div className="text-2xl font-bold text-indigo-400 mt-1">₹{totalGST.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-indigo-400 mt-1">₹{kpiSummary.gst_pool_18.toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सेलर पेआउट देनदारी</div>
-                <div className="text-2xl font-bold text-amber-400 mt-1">₹{totalSellerPayout.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-amber-400 mt-1">₹{kpiSummary.seller_payable_total.toFixed(2)}</div>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
-                  <tr>
-                    <th className="p-3">तारीख / ID</th>
-                    <th className="p-3">ग्राहक / ईमेल</th>
-                    <th className="p-3 text-right">सकल राशि</th>
-                    <th className="p-3 text-right">गेटवे (2%)</th>
-                    <th className="p-3 text-right">प्लेटफ़ॉर्म (3%)</th>
-                    <th className="p-3 text-right">शिपिंग</th>
-                    <th className="p-3 text-right">GST</th>
-                    <th className="p-3 text-right text-emerald-400">सेलर पेआउट</th>
-                    <th className="p-3 text-center">रीकंसीलिएशन</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {ledgers.length === 0 ? (
-                    <tr><td colSpan={9} className="p-8 text-center text-slate-500">अभी कोई लाइव ट्रांजेक्शन रिकॉर्ड नहीं है।</td></tr>
-                  ) : (
-                    ledgers.map((row) => (
-                      <tr key={row.id}>
-                        <td className="p-3 font-mono">{row.order_id}</td>
-                        <td className="p-3">{row.customer_email || 'Direct Sync'}</td>
-                        <td className="p-3 text-right">₹{row.gross_amount}</td>
-                        <td className="p-3 text-right text-red-400">-₹{row.gateway_fee}</td>
-                        <td className="p-3 text-right text-indigo-400">+₹{row.platform_fee}</td>
-                        <td className="p-3 text-right text-red-400">-₹{row.shipping_fee}</td>
-                        <td className="p-3 text-right">₹{row.gst_tax}</td>
-                        <td className="p-3 text-right font-bold text-emerald-400">₹{row.net_seller_payout}</td>
-                        <td className="p-3 text-center">
-                          <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
-                            {row.reconciliation_status || 'Reconciled'}
-                          </span>
+              {loadingLedger ? (
+                <div className="p-8 text-center text-slate-400 font-bold">लाइव वित्तीय लेजर लोड हो रहा है...</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
+                    <tr>
+                      <th className="p-3">तारीख / ID</th>
+                      <th className="p-3">ग्राहक / ईमेल</th>
+                      <th className="p-3 text-right">सकल राशि</th>
+                      <th className="p-3 text-right">गेटवे (2%)</th>
+                      <th className="p-3 text-right">प्लेटफ़ॉर्म (3%)</th>
+                      <th className="p-3 text-right">GST (18%)</th>
+                      <th className="p-3 text-right">TCS (1%)</th>
+                      <th className="p-3 text-right text-emerald-400">सेलर पेआउट</th>
+                      <th className="p-3 text-center">रीकंसीलिएशन</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {ledgers.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="p-8 text-center text-slate-500">
+                          डेटाबेस में अभी कोई लाइव ट्रांजेक्शन रिकॉर्ड नहीं है।
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      ledgers.map((row) => (
+                        <tr key={row.order_id} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3 font-mono font-bold text-white">{row.order_id}</td>
+                          <td className="p-3 text-slate-300">{row.buyer}</td>
+                          <td className="p-3 text-right font-bold text-white">₹{Number(row.gross_amount).toFixed(2)}</td>
+                          <td className="p-3 text-right text-red-400">-₹{Number(row.gateway_2pct).toFixed(2)}</td>
+                          <td className="p-3 text-right text-indigo-400">+₹{Number(row.platform_fee_3pct).toFixed(2)}</td>
+                          <td className="p-3 text-right text-blue-400">₹{Number(row.gst_18pct).toFixed(2)}</td>
+                          <td className="p-3 text-right text-amber-400">-₹{Number(row.tcs_1pct).toFixed(2)}</td>
+                          <td className="p-3 text-right font-bold text-emerald-400">₹{Number(row.seller_net).toFixed(2)}</td>
+                          <td className="p-3 text-center">
+                            <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
+                              {row.escrow_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )}
