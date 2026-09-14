@@ -16,7 +16,6 @@ interface CartItem {
   quantity: number;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
 const RAZORPAY_KEY_ID = 'rzp_live_TbrAevwYL3iVMI';
 
 export default function CartPage() {
@@ -39,7 +38,7 @@ export default function CartPage() {
   // Payment Selection
   const [paymentMethod, setPaymentMethod] = useState<'ONLINE' | 'COD'>('ONLINE');
 
-  const loadCartData = async () => {
+  const loadCartData = () => {
     setLoading(true);
     let loadedItems: CartItem[] = [];
 
@@ -50,25 +49,6 @@ export default function CartPage() {
       }
     } catch (e) {
       console.error(e);
-    }
-
-    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-    if (token) {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/cart/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const apiItems = Array.isArray(data) ? data : data.items || [];
-          if (apiItems.length > 0) {
-            loadedItems = apiItems;
-            localStorage.setItem('user_cart_items', JSON.stringify(apiItems));
-          }
-        }
-      } catch (err) {
-        console.error('API Sync Error:', err);
-      }
     }
 
     setItems(loadedItems);
@@ -173,49 +153,23 @@ export default function CartPage() {
     }
 
     if (typeof window === 'undefined' || !(window as any).Razorpay) {
-      alert('Razorpay लोड हो रहा है, कृपया 3 सेकंड बाद पुनः प्रयास करें।');
+      alert('Razorpay गेटवे लोड हो रहा है, कृपया 2 सेकंड बाद पुनः प्रयास करें।');
       setSubmitting(false);
       return;
     }
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      // 1. दोनों URL (api/payment और direct payment) के लिए सेफ फॉलबैक
-      let targetUrl = `${API_BASE_URL}/api/payment/create-order/`;
-      let orderRes = await fetch(targetUrl, {
+      // सीधे Next.js आंतरिक API से Razorpay Order बनाना
+      const orderRes = await fetch('/api/razorpay', {
         method: 'POST',
-        headers: headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: totalAmount }),
       });
 
-      // यदि /api/ पर 404 मिला, तो सीधे /payment/ पर प्रयास करें
-      if (orderRes.status === 404) {
-        targetUrl = `${API_BASE_URL}/payment/create-order/`;
-        orderRes = await fetch(targetUrl, {
-          method: 'POST',
-          headers: headers,
-          body: JSON.stringify({ amount: totalAmount }),
-        });
-      }
-
-      const responseText = await orderRes.text();
-      let orderData: any;
-      try {
-        orderData = JSON.parse(responseText);
-      } catch (err) {
-        throw new Error(`सर्वर से अमान्य उत्तर (Status: ${orderRes.status})। बैकएंड का एंडपॉइंट उपलब्ध नहीं है।`);
-      }
+      const orderData = await orderRes.json();
 
       if (!orderRes.ok || !orderData.id) {
-        alert(orderData.error || orderData.detail || 'पेमेंट ऑर्डर नहीं बन सका।');
+        alert(orderData.error || 'पेमेंट ऑर्डर नहीं बन सका। कृपया दुबारा प्रयास करें।');
         setSubmitting(false);
         return;
       }
@@ -229,17 +183,13 @@ export default function CartPage() {
         order_id: orderData.id,
         handler: async function (response: any) {
           try {
-            const verifyUrl = targetUrl.includes('/api/')
-              ? `${API_BASE_URL}/api/payment/verify/`
-              : `${API_BASE_URL}/payment/verify/`;
-
-            await fetch(verifyUrl, {
+            await fetch('/api/checkout/verify', {
               method: 'POST',
-              headers: headers,
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(response),
             });
           } catch (err) {
-            console.error('Payment verification warning:', err);
+            console.error('Verification warning:', err);
           }
           finishOrder('Razorpay Online', response.razorpay_payment_id);
         },
@@ -259,8 +209,8 @@ export default function CartPage() {
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } catch (err: any) {
-      console.error('Checkout error details:', err);
-      alert(`पेमेंट शुरू करने में समस्या आई: ${err?.message || 'सर्वर एरर'}`);
+      console.error('Checkout error:', err);
+      alert(`पेमेंट शुरू करने में समस्या आई: ${err?.message || 'अज्ञात त्रुटि'}`);
       setSubmitting(false);
     }
   };
