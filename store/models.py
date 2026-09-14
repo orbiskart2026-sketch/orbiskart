@@ -353,3 +353,41 @@ class Review(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.product.title} ({self.rating}★)"
+    from django.db import models
+from django.contrib.auth.models import User
+from decimal import Decimal
+
+class ImmutableMasterTransaction(models.Model):
+    TRANSACTION_TYPES = [
+        ('ECOMMERCE_ORDER', 'E-Commerce Order'),
+        ('UTILITY_BILL', 'BBPS Utility Bill'),
+        ('RECHARGE', 'Mobile/DTH Recharge'),
+        ('GAS_BOOKING', 'LPG Gas Booking'),
+        ('LOAN_REPAYMENT', 'Loan EMI Repayment'),
+        ('SELLER_PAYOUT', 'Vendor Bank Settlement'),
+    ]
+
+    tx_id = models.CharField(max_length=100, unique=True, editable=False)
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='immutable_txs')
+    service_type = models.CharField(max_length=50, choices=TRANSACTION_TYPES)
+    
+    # Financial Breakdown
+    gross_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    gateway_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    platform_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    gst_on_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    tcs_tax = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    net_payout = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
+    # Security & Audit
+    operator_ref = models.CharField(max_length=150, blank=True, null=True) # BBPS / Bank UTR
+    status = models.CharField(max_length=30, default='SUCCESS')
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, editable=False)
+
+    # सुरक्षा नियम: यह रिकॉर्ड कभी डिलीट नहीं हो सकता
+    def delete(self, *args, **kwargs):
+        raise PermissionError("कानूनी नियम: यह वित्तीय ट्रांजेक्शन कभी डिलीट नहीं किया जा सकता।")
+
+    def __str__(self):
+        return f"{self.tx_id} - {self.service_type} - ₹{self.gross_amount}"

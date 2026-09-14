@@ -667,3 +667,44 @@ class VerifyRazorpayPaymentView(APIView):
             return Response({'error': 'भुगतान सत्यापन विफल: अमान्य सिग्नेचर।'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+   from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions
+from decimal import Decimal
+import uuid
+from .models import ImmutableMasterTransaction
+
+class UtilityBillEngineView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        service = request.data.get('service_type') # 'RECHARGE', 'GAS_BOOKING', etc.
+        amount = Decimal(str(request.data.get('amount', 0)))
+        consumer_id = request.data.get('consumer_id') # CA Number / Mobile / Loan ID
+
+        if amount <= 0:
+            return Response({'error': 'अमान्य राशि'}, status=400)
+
+        # 1. BBPS स्विच / API प्रोवाइडर कॉल (सिमुलेशन / लाइव इंटीग्रेशन)
+        # वास्तविक समय में यहाँ Setu/BBPS API पर कॉल जाती है
+        operator_ref = f"BBPS-{uuid.uuid4().hex[:10].upper()}"
+
+        # 2. कभी न मिटने वाले लेजर में रिकॉर्ड सुरक्षित करना
+        tx = ImmutableMasterTransaction.objects.create(
+            tx_id=f"TXN-{uuid.uuid4().hex[:12].upper()}",
+            user=request.user if request.user.is_authenticated else None,
+            service_type=service,
+            gross_amount=amount,
+            gateway_fee=(amount * Decimal('0.015')).quantize(Decimal('0.01')),
+            platform_commission=Decimal('2.00'), # सुविधा शुल्क
+            operator_ref=operator_ref,
+            status='SUCCESS',
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+
+        return Response({
+            'success': True,
+            'tx_id': tx.tx_id,
+            'operator_ref': operator_ref,
+            'message': f'{service} सफलतापूर्वक प्रोसेस हो गया!'
+        })     
