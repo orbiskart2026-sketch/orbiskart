@@ -15,6 +15,8 @@ from .views import (
     SellerDashboardSummaryView,
     CreateRazorpayOrderView,
     VerifyRazorpayPaymentView,
+    UtilityBillEngineView,
+    CentralEcoMasterLedgerView,
 )
 
 urlpatterns = [
@@ -44,4 +46,11 @@ urlpatterns = [
     # Razorpay Live Payment
     path('payment/create-order/', CreateRazorpayOrderView.as_view(), name='razorpay-create-order'),
     path('payment/verify/', VerifyRazorpayPaymentView.as_view(), name='razorpay-verify-payment'),
+
+    # BBPS Utility Bills & Services
+    path('pay/bill/', UtilityBillEngineView.as_view(), name='utility-bill-pay'),
+
+    # Central ECO Master Ledger API (Admin Dashboard Sync)
+    path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger'),
+    path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-alt'),
 ]
