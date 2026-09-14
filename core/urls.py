@@ -13,8 +13,11 @@ urlpatterns = [
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # सेंट्रल लेजर का सीधा रूट
-    path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='api-eco-master-ledger'),
+    # 1. बिना api/ के सीधा रूट
+    path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-root'),
+    
+    # 2. api/ के साथ सीधा रूट
+    path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-api'),
     
     path('api/', include('store.urls')),
 ]
