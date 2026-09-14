@@ -43,7 +43,6 @@ export default function CartPage() {
     setLoading(true);
     let loadedItems: CartItem[] = [];
 
-    // 1. लोकल स्टोरेज से कार्ट रिकवर करें
     try {
       const localCart = localStorage.getItem('user_cart_items');
       if (localCart) {
@@ -53,7 +52,6 @@ export default function CartPage() {
       console.error(e);
     }
 
-    // 2. बैकएंड से सिंक करने का प्रयास (Auth Token के साथ)
     const token = localStorage.getItem('access_token') || localStorage.getItem('token');
     if (token) {
       try {
@@ -80,7 +78,6 @@ export default function CartPage() {
   useEffect(() => {
     loadCartData();
 
-    // पहले से मौजूद Razorpay SDK की जाँच
     if (typeof window !== 'undefined' && (window as any).Razorpay) {
       setRazorpayReady(true);
     }
@@ -170,15 +167,13 @@ export default function CartPage() {
 
     setSubmitting(true);
 
-    // 1. Cash on Delivery (COD)
     if (paymentMethod === 'COD') {
       finishOrder('Cash on Delivery', 'COD_' + Date.now());
       return;
     }
 
-    // 2. Razorpay SDK लोड होने की पुष्टि
     if (typeof window === 'undefined' || !(window as any).Razorpay) {
-      alert('Razorpay गेटवे लोड हो रहा है, कृपया 3 सेकंड बाद दोबारा क्लिक करें।');
+      alert('Razorpay लोड हो रहा है, कृपया 3 सेकंड बाद पुनः प्रयास करें।');
       setSubmitting(false);
       return;
     }
@@ -187,22 +182,40 @@ export default function CartPage() {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      
+
       const token = localStorage.getItem('access_token') || localStorage.getItem('token');
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-order/`, {
+      // 1. दोनों URL (api/payment और direct payment) के लिए सेफ फॉलबैक
+      let targetUrl = `${API_BASE_URL}/api/payment/create-order/`;
+      let orderRes = await fetch(targetUrl, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({ amount: totalAmount }),
       });
 
-      const orderData = await orderRes.json();
+      // यदि /api/ पर 404 मिला, तो सीधे /payment/ पर प्रयास करें
+      if (orderRes.status === 404) {
+        targetUrl = `${API_BASE_URL}/payment/create-order/`;
+        orderRes = await fetch(targetUrl, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({ amount: totalAmount }),
+        });
+      }
+
+      const responseText = await orderRes.text();
+      let orderData: any;
+      try {
+        orderData = JSON.parse(responseText);
+      } catch (err) {
+        throw new Error(`सर्वर से अमान्य उत्तर (Status: ${orderRes.status})। बैकएंड का एंडपॉइंट उपलब्ध नहीं है।`);
+      }
 
       if (!orderRes.ok || !orderData.id) {
-        alert(orderData.error || orderData.detail || 'सर्वर से Razorpay Order ID नहीं मिल सकी।');
+        alert(orderData.error || orderData.detail || 'पेमेंट ऑर्डर नहीं बन सका।');
         setSubmitting(false);
         return;
       }
@@ -216,7 +229,11 @@ export default function CartPage() {
         order_id: orderData.id,
         handler: async function (response: any) {
           try {
-            await fetch(`${API_BASE_URL}/api/payment/verify/`, {
+            const verifyUrl = targetUrl.includes('/api/')
+              ? `${API_BASE_URL}/api/payment/verify/`
+              : `${API_BASE_URL}/payment/verify/`;
+
+            await fetch(verifyUrl, {
               method: 'POST',
               headers: headers,
               body: JSON.stringify(response),
@@ -243,14 +260,13 @@ export default function CartPage() {
       rzp.open();
     } catch (err: any) {
       console.error('Checkout error details:', err);
-      alert(`पेमेंट शुरू करने में समस्या आई: ${err?.message || 'कनेक्शन एरर'}`);
+      alert(`पेमेंट शुरू करने में समस्या आई: ${err?.message || 'सर्वर एरर'}`);
       setSubmitting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Razorpay आधिकारिक SDK ऑटो-लोडर */}
       <Script
         src="https://checkout.razorpay.com/v1/checkout.js"
         strategy="lazyOnload"
@@ -287,7 +303,6 @@ export default function CartPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              {/* Delivery Address */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-4 flex items-center gap-2 border-b pb-2">
                   <span>📍</span> 1. Delivery Address (डिलीवरी का पूरा पता)
@@ -374,7 +389,6 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Payment Method */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-3 flex items-center gap-2 border-b pb-2">
                   <span>💳</span> 2. Payment Method
@@ -426,7 +440,6 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* Cart Items */}
               <div className="bg-white p-5 rounded-2xl border shadow-xs space-y-4">
                 <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider mb-2 flex items-center gap-2">
                   <span>🛍️</span> 3. Cart Items ({items.length})
@@ -481,7 +494,6 @@ export default function CartPage() {
               </div>
             </div>
 
-            {/* Price Summary */}
             <div className="lg:col-span-1">
               <div className="bg-white p-5 rounded-2xl border shadow-xs sticky top-24">
                 <h2 className="text-xs font-black text-gray-500 uppercase tracking-wider mb-4">Price Details</h2>
