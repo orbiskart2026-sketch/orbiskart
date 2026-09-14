@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
-
 export default function UnifiedMasterAdmin() {
   const [auth, setAuth] = useState(false);
   const [view, setView] = useState<'login' | 'reset'>('login');
@@ -19,7 +17,6 @@ export default function UnifiedMasterAdmin() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // डिफ़ॉल्ट रिकवरी मास्टर पिन
   const MASTER_RECOVERY_PIN = '123456';
 
   useEffect(() => {
@@ -42,6 +39,7 @@ export default function UnifiedMasterAdmin() {
     seller_payable_total: 0,
   });
   const [loadingLedger, setLoadingLedger] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>('');
 
   const [sellers, setSellers] = useState<any[]>([
     {
@@ -106,18 +104,50 @@ export default function UnifiedMasterAdmin() {
     setConfirmPassword('');
   };
 
-  // वास्तविक डेटाबेस से लाइव वित्तीय लेजर लोड करना
+  // डेटाबेस से लाइव वित्तीय लेजर लोड करना (डुअल एंडपॉइंट ऑटो-फॉलबैक)
   const fetchLiveLedger = async () => {
     try {
       setLoadingLedger(true);
-      const res = await fetch(`${API_BASE_URL}/api/admin/eco-master-ledger/`);
-      if (res.ok) {
-        const data = await res.json();
-        setKpiSummary(data.kpi_summary);
-        setLedgers(data.audit_records);
+      setSyncStatus('सिंक हो रहा है...');
+
+      const endpoints = [
+        'https://orbiskart.onrender.com/api/admin/eco-master-ledger/',
+        'https://orbiskart.onrender.com/admin/eco-master-ledger/'
+      ];
+
+      let success = false;
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.kpi_summary) {
+              setKpiSummary(data.kpi_summary);
+              setLedgers(data.audit_records || []);
+              setSyncStatus('लाइव कनेक्टेड ✅');
+              success = true;
+              break;
+            }
+          }
+        } catch (subErr) {
+          console.warn(`Endpoint ${url} failed, trying next...`);
+        }
+      }
+
+      if (!success) {
+        setSyncStatus('सिंक विफल (बैकएंड रिस्पांस चेक करें)');
       }
     } catch (err) {
       console.error('लेजर लोड करने में त्रुटि:', err);
+      setSyncStatus('कनेक्शन एरर');
     } finally {
       setLoadingLedger(false);
     }
@@ -246,9 +276,14 @@ export default function UnifiedMasterAdmin() {
           <p className="text-xs text-slate-400">विक्रेता ऑडिट • कूरियर ट्रैकिंग • लेजर एवं नीतियां (Govt Sec-52 Compliant)</p>
         </div>
         <div className="flex items-center gap-3">
+          {syncStatus && (
+            <span className="text-[11px] font-mono px-2.5 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300">
+              {syncStatus}
+            </span>
+          )}
           <button
             onClick={fetchLiveLedger}
-            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-white transition"
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-semibold text-white transition"
           >
             🔄 रीफ़्रेश लेजर
           </button>
@@ -300,45 +335,45 @@ export default function UnifiedMasterAdmin() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सकल बिक्री</div>
-                <div className="text-2xl font-bold text-white mt-1">₹{kpiSummary.gross_sales.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-white mt-1">₹{Number(kpiSummary.gross_sales || 0).toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">प्लेटफ़ॉर्म लाभ (3%)</div>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">₹{kpiSummary.company_net_profit.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-emerald-400 mt-1">₹{Number(kpiSummary.company_net_profit || 0).toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">देय GST लेवी (18%)</div>
-                <div className="text-2xl font-bold text-indigo-400 mt-1">₹{kpiSummary.gst_pool_18.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-indigo-400 mt-1">₹{Number(kpiSummary.gst_pool_18 || 0).toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सेलर पेआउट देनदारी</div>
-                <div className="text-2xl font-bold text-amber-400 mt-1">₹{kpiSummary.seller_payable_total.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-amber-400 mt-1">₹{Number(kpiSummary.seller_payable_total || 0).toFixed(2)}</div>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
               {loadingLedger ? (
-                <div className="p-8 text-center text-slate-400 font-bold">लाइव वित्तीय लेजर लोड हो रहा है...</div>
+                <div className="p-8 text-center text-slate-400 font-bold">डेटाबेस से लाइव वित्तीय ऑडिट लोड हो रहा है...</div>
               ) : (
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
                     <tr>
                       <th className="p-3">तारीख / ID</th>
-                      <th className="p-3">ग्राहक / ईमेल</th>
+                      <th className="p-3">ग्राहक / विवरण</th>
                       <th className="p-3 text-right">सकल राशि</th>
                       <th className="p-3 text-right">गेटवे (2%)</th>
                       <th className="p-3 text-right">प्लेटफ़ॉर्म (3%)</th>
                       <th className="p-3 text-right">GST (18%)</th>
                       <th className="p-3 text-right">TCS (1%)</th>
                       <th className="p-3 text-right text-emerald-400">सेलर पेआउट</th>
-                      <th className="p-3 text-center">रीकंसीलिएशन</th>
+                      <th className="p-3 text-center">एस्क्रो स्थिति</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {ledgers.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-slate-500">
-                          डेटाबेस में अभी कोई लाइव ट्रांजेक्शन रिकॉर्ड नहीं है।
+                          डेटाबेस में अभी कोई लाइव ट्रांजेक्शन रिकॉर्ड नहीं मिला है।
                         </td>
                       </tr>
                     ) : (
@@ -354,7 +389,7 @@ export default function UnifiedMasterAdmin() {
                           <td className="p-3 text-right font-bold text-emerald-400">₹{Number(row.seller_net).toFixed(2)}</td>
                           <td className="p-3 text-center">
                             <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
-                              {row.escrow_status}
+                              {row.escrow_status || 'Verified'}
                             </span>
                           </td>
                         </tr>
