@@ -1,39 +1,47 @@
 from django.urls import path
-from . import views
+from .views import (
+    RegisterAPIView,
+    ProductListView,
+    ProductDetailView,
+    CartView,
+    AddToCartView,
+    UpdateCartItemView,
+    RemoveFromCartView,
+    CreateOrderView,
+    VerifyOrderOTPView,
+    UserOrdersListView,
+    DownloadInvoicePDFView,
+    AddProductReviewView,
+    SellerDashboardSummaryView,
+    CreateRazorpayOrderView,
+    VerifyRazorpayPaymentView,
+)
 
 urlpatterns = [
-    # 1. ऑथेंटिकेशन
-    path('register/', views.RegisterAPIView.as_view(), name='api-register'),
+    # Auth
+    path('auth/register/', RegisterAPIView.as_view(), name='user-register'),
 
-    # 2. प्रोडक्ट्स लिस्टिंग एवं सेलर अपलोड (GET/POST)
-    path('products/', views.ProductListView.as_view(), name='api-product-list'),
+    # Products
+    path('products/', ProductListView.as_view(), name='product-list'),
+    path('products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
+    path('products/<int:pk>/review/', AddProductReviewView.as_view(), name='product-review'),
 
-    # 3. सिंगल प्रोडक्ट डिटेल (ID आधारित)
-    path('products/<int:pk>/', views.ProductDetailView.as_view(), name='api-product-detail'),
+    # Cart
+    path('cart/', CartView.as_view(), name='cart-view'),
+    path('cart/add/', AddToCartView.as_view(), name='cart-add'),
+    path('cart/update/', UpdateCartItemView.as_view(), name='cart-update'),
+    path('cart/remove/', RemoveFromCartView.as_view(), name='cart-remove'),
 
-    # 4. कार्ट प्रबंधन
-    path('cart/', views.CartView.as_view(), name='api-cart'),
-    path('cart/add/', views.AddToCartView.as_view(), name='api-cart-add'),
-    path('cart/update/', views.UpdateCartItemView.as_view(), name='api-cart-update'),
-    path('cart/remove/', views.RemoveFromCartView.as_view(), name='api-cart-remove'),
+    # Orders, 2-Way OTP & GST Tax Invoice
+    path('orders/', UserOrdersListView.as_view(), name='user-orders'),
+    path('orders/create/', CreateOrderView.as_view(), name='order-create'),
+    path('orders/<int:order_id>/verify-otp/', VerifyOrderOTPView.as_view(), name='verify-otp'),
+    path('orders/<int:order_id>/invoice/', DownloadInvoicePDFView.as_view(), name='download-invoice'),
 
-    # 5. ऑर्डर और चेकआउट (ऑटो जनरेटेड OTP सहित)
-    path('orders/create/', views.CreateOrderView.as_view(), name='api-order-create'),
-    path('orders/', views.UserOrdersListView.as_view(), name='api-user-orders'),
+    # Seller Transparency Dashboard
+    path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='seller-dashboard'),
 
-    # 6. फ्रॉड रोकथाम: डिलीवरी एवं रिटर्न 6-अंकीय OTP सत्यापन
-    path('orders/<int:order_id>/verify-otp/', views.VerifyOrderOTPView.as_view(), name='api-verify-order-otp'),
-
-    # 7. GST इनवॉइस PDF डाउनलोड
-    path('orders/<int:order_id>/invoice/', views.DownloadInvoicePDFView.as_view(), name='api-download-invoice'),
-
-    # 8. रिव्यू और रेटिंग सबमिशन
-    path('products/<int:pk>/reviews/add/', views.AddProductReviewView.as_view(), name='api-add-review'),
-
-    # 9. सेलर हब डैशबोर्ड एवं वित्तीय पारदर्शिता समरी (👑 हब टैब के लिए)
-    path('seller/dashboard/', views.SellerDashboardSummaryView.as_view(), name='api-seller-dashboard'),
-
-    # 10. Razorpay ऑनलाइन पेमेंट गेटवे
-    path('payment/create-order/', views.CreateRazorpayOrderView.as_view(), name='api-razorpay-order'),
-    path('payment/verify/', views.VerifyRazorpayPaymentView.as_view(), name='api-razorpay-verify'),
+    # Razorpay Live Payment
+    path('payment/create-order/', CreateRazorpayOrderView.as_view(), name='razorpay-create-order'),
+    path('payment/verify/', VerifyRazorpayPaymentView.as_view(), name='razorpay-verify-payment'),
 ]

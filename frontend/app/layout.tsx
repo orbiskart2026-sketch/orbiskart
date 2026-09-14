@@ -13,10 +13,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="hi">
-      <body>
+    <html lang="hi" suppressHydrationWarning>
+      <body className="antialiased">
         {children}
+        
+        {/* Razorpay पेमेंट चेकआउट SDK */}
         <Script
+          id="razorpay-checkout-sdk"
           src="https://checkout.razorpay.com/v1/checkout.js"
           strategy="lazyOnload"
         />

@@ -64,49 +64,71 @@ class VendorProfile(models.Model):
         return f"{self.store_name} ({'सत्यापित' if self.is_approved else 'सत्यापन लंबित'})"
 
 
-# --- 3. Dynamic Category & Tax Policy ---
-class CategoryPolicy(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    hsn_code = models.CharField(max_length=20, default='851830')
-    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
-    platform_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
-    settlement_days = models.IntegerField(default=7)
+# --- 3. Govt Official HSN / SAC Master Database ---
+class GovtHSNMaster(models.Model):
+    hsn_code = models.CharField(max_length=8, unique=True, help_text="सरकार द्वारा निर्धारित 6 या 8 अंकों का HSN/SAC कोड")
+    description = models.CharField(max_length=255, help_text="वस्तु या सेवा का आधिकारिक विवरण")
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, help_text="सरकारी GST दर (उदा: 5.00, 12.00, 18.00)")
+    cess_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'), help_text="अतिरिक्त उपकर (यदि लागू हो)")
+    last_updated_gov = models.DateField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Govt HSN Master"
+        verbose_name_plural = "Govt HSN Masters"
 
     def __str__(self):
-        return f"{self.name} (GST: {self.gst_rate}%, Platform: {self.platform_fee_percent}%)"
+        return f"{self.hsn_code} - {self.description} ({self.gst_rate}%)"
 
 
+# --- 4. Dynamic Category & Tax Policy ---
 class Category(models.Model):
     name = models.CharField(max_length=200)
+
+    class Meta:
+        verbose_name_plural = "Categories"
 
     def __str__(self):
         return self.name
 
 
-# --- 4. Dynamic Shipping Rate Card ---
+class CategoryPolicy(models.Model):
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='policies', null=True, blank=True)
+    name = models.CharField(max_length=100, unique=True)
+    hsn_master = models.ForeignKey(GovtHSNMaster, on_delete=models.SET_NULL, null=True, blank=True, help_text="सरकारी HSN मास्टर से ऑटोमैटिक GST")
+    hsn_code = models.CharField(max_length=20, default='851830')
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
+    platform_fee_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
+    settlement_days = models.IntegerField(default=7)
+
+    def save(self, *args, **kwargs):
+        if self.hsn_master:
+            self.hsn_code = self.hsn_master.hsn_code
+            self.gst_rate = self.hsn_master.gst_rate
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} (HSN: {self.hsn_code}, GST: {self.gst_rate}%)"
+
+
+# --- 5. Dynamic Shipping Rate Card ---
 class ShippingRateCard(models.Model):
-    max_weight_grams = models.IntegerField(default=500, unique=True)
+    zone = models.CharField(max_length=50, default='Regional')
+    min_weight_grams = models.IntegerField(default=0)
+    max_weight_grams = models.IntegerField(default=500)
     forward_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('50.00'))
     rto_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('40.00'))
 
     def __str__(self):
-        return f"Up to {self.max_weight_grams}g - Forward: ₹{self.forward_charge}, RTO: ₹{self.rto_charge}"
+        return f"{self.zone} ({self.min_weight_grams}g-{self.max_weight_grams}g) - Forward: ₹{self.forward_charge}"
 
 
-# --- 5. Transparent Product Model ---
+# --- 6. Transparent Product Model ---
 class Product(models.Model):
-    GST_CHOICES = [
-        (Decimal('0.00'), '0% (Exempt)'),
-        (Decimal('5.00'), '5% (Essential/Apparel)'),
-        (Decimal('12.00'), '12% (Processed Goods)'),
-        (Decimal('18.00'), '18% (Standard/Electronics)'),
-        (Decimal('28.00'), '28% (Luxury Goods)'),
-    ]
-
     vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     category_policy = models.ForeignKey(CategoryPolicy, on_delete=models.SET_NULL, null=True, blank=True)
+    hsn_record = models.ForeignKey(GovtHSNMaster, on_delete=models.SET_NULL, null=True, blank=True, help_text="सरकारी डेटाबेस से ऑटोमैटिक HSN")
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -114,15 +136,24 @@ class Product(models.Model):
     original_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     hsn_code = models.CharField(max_length=20, default='851830')
-    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, choices=GST_CHOICES, default=Decimal('18.00'))
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
     weight_grams = models.IntegerField(default=300)
     image = models.ImageField(upload_to='products/', null=True, blank=True)
     stock = models.IntegerField(default=10)
     created_at = models.DateTimeField(default=timezone.now)
 
+    def save(self, *args, **kwargs):
+        if self.hsn_record:
+            self.hsn_code = self.hsn_record.hsn_code
+            self.gst_rate = self.hsn_record.gst_rate
+        elif self.category_policy:
+            self.hsn_code = self.category_policy.hsn_code
+            self.gst_rate = self.category_policy.gst_rate
+        super().save(*args, **kwargs)
+
     def calculate_transparency_ledger(self):
         gross = Decimal(str(self.price))
-        rate = self.category_policy.gst_rate if self.category_policy else self.gst_rate
+        rate = self.gst_rate
         plat_rate = self.category_policy.platform_fee_percent if self.category_policy else (
             self.vendor.commission_rate if self.vendor else Decimal('3.00')
         )
@@ -165,7 +196,7 @@ class Product(models.Model):
         return f"{self.title} (₹{self.price})"
 
 
-# --- 6. Cart & Items ---
+# --- 7. Cart & Items ---
 class Cart(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(default=timezone.now)
@@ -183,14 +214,13 @@ class CartItem(models.Model):
         return f"{self.quantity} x {self.product.title}"
 
 
-# --- 7. Order Model (With Logistics & Support Info) ---
+# --- 8. Order Model (With Logistics & Fraud Prevention OTP) ---
 class Order(models.Model):
     PAYMENT_CHOICES = [
         ('COD', 'Cash on Delivery'),
         ('UPI', 'UPI / QR Code'),
+        ('Razorpay-Prepaid', 'Razorpay Prepaid Online'),
         ('NET_BANKING', 'Internet Banking'),
-        ('CREDIT_CARD', 'Credit Card'),
-        ('DEBIT_CARD', 'Debit Card'),
     ]
 
     STATUS_CHOICES = [
@@ -214,7 +244,6 @@ class Order(models.Model):
     shipping_address = models.TextField(default='')
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Confirmed')
 
-    # लॉजिस्टिक्स एवं लाइव ट्रैकिंग
     courier_partner = models.CharField(max_length=100, default='Delhivery Express')
     courier_contact = models.CharField(max_length=20, default='1800-102-1234')
     rider_name = models.CharField(max_length=100, blank=True, null=True)
@@ -222,14 +251,11 @@ class Order(models.Model):
     awb_number = models.CharField(max_length=100, blank=True, null=True)
     live_tracking_url = models.URLField(max_length=500, blank=True, null=True)
 
-    # सुरक्षा सत्यापन OTP
     delivery_otp = models.CharField(max_length=6, blank=True, null=True)
     return_otp = models.CharField(max_length=6, blank=True, null=True)
 
-    # OrbisKart IT कॉल व टिकट सपोर्ट
     it_call_no = models.CharField(max_length=20, default='+91-1800-889-2026')
     support_reference_no = models.CharField(max_length=50, blank=True, null=True)
-
     created_at = models.DateTimeField(default=timezone.now)
 
     def save(self, *args, **kwargs):
@@ -241,7 +267,7 @@ class Order(models.Model):
         return f"Order #{self.id} - {self.user.username} ({self.status})"
 
 
-# --- 8. Order Item & Live Transparency Deduction Engine ---
+# --- 9. Order Item & Live Transparency Deduction Engine ---
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -294,7 +320,7 @@ class OrderItem(models.Model):
         return f"{self.quantity} x {self.product.title} (Payout: ₹{self.vendor_payout})"
 
 
-# --- 9. Seller Deduction Cutting Slip (Zero Hidden Cuts) ---
+# --- 10. Seller Deduction Cutting Slip (Zero Hidden Cuts) ---
 class SellerDeductionSlip(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE, related_name='deduction_slips')
@@ -314,7 +340,7 @@ class SellerDeductionSlip(models.Model):
         return f"Slip {self.slip_number} - ₹{self.final_settlement_amount}"
 
 
-# --- 10. Reviews ---
+# --- 11. Reviews ---
 class Review(models.Model):
     product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)

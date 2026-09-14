@@ -1,5 +1,6 @@
 import io
 import random
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import models, transaction
@@ -519,19 +520,17 @@ class SellerDashboardSummaryView(APIView):
         try:
             profile = VendorProfile.objects.get(user=request.user)
             
-            # वेंडर के ऑर्डर्स निकालना
             seller_orders = Order.objects.filter(items__vendor=profile).distinct()
             
             total_orders = seller_orders.count()
             delivered_orders = seller_orders.filter(status='Delivered').count()
             returned_orders = seller_orders.filter(status__icontains='Return').count()
             
-            # हालिया कटौती स्लिप्स
             recent_slips = SellerDeductionSlip.objects.filter(vendor=profile).order_by('-created_at')[:10]
             slips_data = [
                 {
                     "slip_number": slip.slip_number,
-                    "order_id": slip.order_id,
+                    "order_id": slip.order.id if slip.order else "N/A",
                     "gross_amount": str(slip.gross_order_amount),
                     "deductions": str(slip.courier_charge + slip.platform_and_pg_fee + slip.rto_risk_deduction),
                     "net_settled": str(slip.final_settlement_amount),
@@ -571,9 +570,9 @@ class SellerDashboardSummaryView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 11. Razorpay: Create Order API ---
+# --- 11. Razorpay: Create Order API (गेस्ट व टेस्ट दोनों के लिए खुला) ---
 class CreateRazorpayOrderView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         try:
@@ -584,7 +583,7 @@ class CreateRazorpayOrderView(APIView):
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
             
             payment_data = {
-                'amount': int(float(amount) * 100),
+                'amount': int(Decimal(str(amount)) * 100),  # राशि पैसे में
                 'currency': 'INR',
                 'payment_capture': '1'
             }
@@ -602,9 +601,9 @@ class CreateRazorpayOrderView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 12. Razorpay: Verify Payment & Auto Ledger Entry API ---
+# --- 12. Razorpay: Verify Payment & Auto Transparency Ledger Entry API ---
 class VerifyRazorpayPaymentView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         try:
@@ -615,40 +614,49 @@ class VerifyRazorpayPaymentView(APIView):
 
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
             
-            # सिग्नेचर का सत्यापन (Signature Verification)
+            # 1. डिजिटल सिग्नेचर सत्यापन
             client.utility.verify_payment_signature({
                 'razorpay_order_id': razorpay_order_id,
                 'razorpay_payment_id': razorpay_payment_id,
                 'razorpay_signature': razorpay_signature
             })
 
-            order = Order.objects.filter(id=order_id).first()
-            if not order:
-                return Response({'error': 'ऑर्डर नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
+            # 2. ऑर्डर स्टेटस अपडेट
+            order = None
+            if order_id:
+                order = Order.objects.filter(id=order_id).first()
 
-            order.status = 'Confirmed'
-            order.payment_method = 'Razorpay-Prepaid'
-            order.save()
+            if order:
+                order.status = 'Confirmed'
+                order.payment_method = 'Razorpay-Prepaid'
+                order.save()
 
-            # वेंडर्स के लिए पारदर्शी वित्तीय लेजर (SellerDeductionSlip) जनरेट करना
-            for item in order.items.select_related('vendor').all():
-                if item.vendor:
-                    gross = item.price * item.quantity
-                    pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    courier_charge = Decimal('50.00')
-                    net_settled = gross - pg_charge - courier_charge
+                # पारदर्शी कटौती स्लिप जनरेट करना (वज़न व ज़ोन के अनुसार)
+                for item in order.items.select_related('vendor', 'product').all():
+                    if item.vendor:
+                        gross = item.price * Decimal(str(item.quantity))
+                        pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        
+                        rate_card = ShippingRateCard.objects.filter(
+                            max_weight_grams__gte=item.product.weight_grams
+                        ).order_by('max_weight_grams').first()
+                        courier_charge = rate_card.forward_charge if rate_card else Decimal('50.00')
 
-                    SellerDeductionSlip.objects.create(
-                        vendor=item.vendor,
-                        order_id=f"ORB-{order.id}",
-                        slip_number=f"SLIP-{order.id}-{item.id}",
-                        gross_order_amount=gross,
-                        courier_charge=courier_charge,
-                        platform_and_pg_fee=pg_charge,
-                        rto_risk_deduction=Decimal('0.00'),
-                        final_settlement_amount=max(Decimal('0.00'), net_settled),
-                        is_settled_to_bank=False
-                    )
+                        platform_comm = ((gross * item.vendor.commission_rate) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        net_settled = gross - pg_charge - courier_charge - platform_comm
+
+                        SellerDeductionSlip.objects.create(
+                            vendor=item.vendor,
+                            order=order,
+                            slip_number=f"SLIP-{order.id}-{item.id}",
+                            gross_order_amount=gross,
+                            gst_collected=item.product_gst_amount,
+                            courier_charge=courier_charge,
+                            platform_and_pg_fee=pg_charge + platform_comm,
+                            rto_risk_deduction=Decimal('0.00'),
+                            final_settlement_amount=max(Decimal('0.00'), net_settled),
+                            is_settled_to_bank=False
+                        )
 
             return Response({
                 'success': True,
