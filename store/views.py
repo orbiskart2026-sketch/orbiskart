@@ -33,12 +33,8 @@ from .serializers import (
 )
 
 
-# --- 0. Multi-Courier Dynamic Logistics Engine (Weight + Zone + Lowest Cost) ---
+# --- 0. Multi-Courier Dynamic Logistics Engine ---
 def get_best_courier_charge(buyer_pincode, total_weight_grams, payment_mode='PREPAID'):
-    """
-    खरीदार के पिनकोड और पार्सल के कुल वज़न के आधार पर 
-    सबसे किफ़ायती कूरियर पार्टनर, ज़ोन और सटीक फ्रेट चार्ज निकालता है।
-    """
     weight = max(500, int(total_weight_grams or 500))
     extra_slabs = (weight - 500 + 499) // 500
 
@@ -73,7 +69,6 @@ def get_best_courier_charge(buyer_pincode, total_weight_grams, payment_mode='PRE
         best_option = min(courier_options, key=lambda x: x['cost'])
         return best_option['cost'], best_option['courier'], best_option['zone'], weight
     else:
-        # फ़ॉलबैक सुरक्षा जाल
         base = Decimal('50.00')
         add = Decimal('20.00')
         calc_cost = (base + (Decimal(str(extra_slabs)) * add)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -100,14 +95,17 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Instant Multi-Media Upload API ---
+# --- 2. Product List & Instant Upload API (सुधारा गया) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         try:
-            queryset = Product.objects.filter(is_active=True).select_related('category', 'category_policy').prefetch_related('additional_images').all()
+            # सुधार 1: पुराने व नए सभी प्रोडक्ट्स सुरक्षित लोड होंगे
+            queryset = Product.objects.filter(
+                models.Q(is_active=True) | models.Q(is_active__isnull=True)
+            ).select_related('category', 'category_policy').prefetch_related('additional_images').all()
 
             search_query = request.query_params.get('search', '').strip()
             if search_query:
@@ -157,11 +155,14 @@ class ProductListView(APIView):
             if request.user.is_authenticated:
                 vendor_profile = getattr(request.user, 'vendor_profile', None)
 
+            # डिफ़ॉल्ट पॉलिसी निकालना (ताकि डेटाबेस क्रैश न हो)
+            default_policy = CategoryPolicy.objects.first()
+
             with transaction.atomic():
-                # तुरंत लाइव पब्लिशिंग (Instant Live)
                 product = Product.objects.create(
                     seller=request.user if request.user.is_authenticated else None,
                     vendor=vendor_profile,
+                    category_policy=default_policy,
                     title=title,
                     description=description,
                     price=Decimal(str(price)),
@@ -172,7 +173,6 @@ class ProductListView(APIView):
                     is_active=True
                 )
 
-                # मल्टीपल इमेजेस (Gallery Images) जोड़ना
                 gallery_files = request.FILES.getlist('gallery_images')
                 if gallery_files:
                     ProductImage.objects.bulk_create([
@@ -314,7 +314,6 @@ class CreateOrderView(APIView):
                 for item in cart_items
             )
 
-            # कुल वज़न व मल्टी-कूरियर दर गणना
             total_cart_weight = sum(
                 (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity 
                 for item in cart_items
@@ -351,7 +350,6 @@ class CreateOrderView(APIView):
                     awb_number=awb_number
                 )
 
-                # कूरियर मिलान रिकॉर्ड बनाना
                 OrderShippingReconciliation.objects.create(
                     order=order,
                     courier_partner=best_courier,
@@ -716,7 +714,7 @@ class CreateRazorpayOrderView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 12. Razorpay: Verify Payment & Multi-Courier Deduction Slip API ---
+# --- 12. Razorpay: Verify Payment & Deduction Slip API (सुधारा गया) ---
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -729,14 +727,12 @@ class VerifyRazorpayPaymentView(APIView):
 
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
             
-            # 1. डिजिटल सिग्नेचर सत्यापन
             client.utility.verify_payment_signature({
                 'razorpay_order_id': razorpay_order_id,
                 'razorpay_payment_id': razorpay_payment_id,
                 'razorpay_signature': razorpay_signature
             })
 
-            # 2. ऑर्डर स्टेटस अपडेट
             order = None
             if order_id:
                 order = Order.objects.filter(id=order_id).first()
@@ -746,7 +742,6 @@ class VerifyRazorpayPaymentView(APIView):
                 order.payment_method = 'Razorpay-Prepaid'
                 order.save()
 
-                # पारदर्शी कटौती स्लिप जनरेट करना (मल्टी-कूरियर लॉजिक के साथ)
                 for item in order.items.select_related('vendor', 'product', 'product__category_policy').all():
                     if item.vendor:
                         gross = item.price * Decimal(str(item.quantity))
@@ -757,9 +752,10 @@ class VerifyRazorpayPaymentView(APIView):
                             order.shipping_pincode, item_weight, payment_mode='Razorpay-Prepaid'
                         )
 
-                        comm_rate = item.vendor.commission_rate
+                        # सुधार 3: सही फ़ील्ड नाम platform_fee_percent को सुरक्षित कॉल करना
+                        comm_rate = getattr(item.vendor, 'commission_rate', Decimal('3.00'))
                         if hasattr(item.product, 'category_policy') and item.product.category_policy:
-                            comm_rate = item.product.category_policy.commission_rate
+                            comm_rate = getattr(item.product.category_policy, 'platform_fee_percent', comm_rate)
                         
                         platform_comm = ((gross * Decimal(str(comm_rate))) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         net_settled = gross - pg_charge - courier_charge - platform_comm
@@ -822,7 +818,7 @@ class UtilityBillEngineView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 14. Central ECO Live Master Ledger API (Multi-Courier + Category Commission) ---
+# --- 14. Central ECO Live Master Ledger API ---
 class CentralEcoMasterLedgerView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -847,7 +843,6 @@ class CentralEcoMasterLedgerView(APIView):
             order_items = o.items.select_related('product', 'vendor', 'product__category_policy').all()
 
             total_weight = sum((getattr(item.product, 'weight_grams', 500) or 500) * item.quantity for item in order_items)
-            
             pincode = getattr(o, 'shipping_pincode', None)
             pay_method = getattr(o, 'payment_method', 'PREPAID')
 
@@ -863,7 +858,7 @@ class CentralEcoMasterLedgerView(APIView):
                 item_price = Decimal(str(item.price)) * item.quantity
                 
                 if hasattr(item.product, 'category_policy') and item.product.category_policy:
-                    comm_pct = Decimal(str(item.product.category_policy.platform_fee_percent or item.product.category_policy.commission_rate))
+                    comm_pct = Decimal(str(getattr(item.product.category_policy, 'platform_fee_percent', Decimal('3.00'))))
                 elif item_price < Decimal('1000.00'):
                     comm_pct = Decimal('5.0')
                 else:
