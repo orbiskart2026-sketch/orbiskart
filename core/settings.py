@@ -19,8 +19,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-o7twl4#10(t**i!#zsoea2*d5m
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 # डोमेन लिस्टिंग (.env से)
-ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost,www.orbiskart.com,orbiskart.com').split(',')]
-
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '127.0.0.1,localhost,www.orbiskart.com,orbiskart.com,orbiskart.onrender.com').split(',') if h.strip()]
 
 # --- Application definition ---
 INSTALLED_APPS = [
@@ -70,7 +69,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-
 # --- Database ---
 DATABASES = {
     'default': {
@@ -78,7 +76,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
 
 # --- Password validation ---
 AUTH_PASSWORD_VALIDATORS = [
@@ -88,30 +85,30 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-
 # --- Internationalization ---
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Kolkata'
 USE_I18N = True
 USE_TZ = True
 
-
 # --- Static & Media Files ---
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-
 # --- Email Setup ---
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
-
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # --- REST Framework & JWT Setup ---
 REST_FRAMEWORK = {
@@ -127,7 +124,6 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
-
 
 # --- CORS & CSRF Configuration ---
 CORS_ALLOW_CREDENTIALS = True
@@ -157,7 +153,6 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
-
 
 # ==========================================
 # Razorpay Payment Gateway (.env से ऑटोमैटिक)
