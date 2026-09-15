@@ -49,7 +49,7 @@ class VendorProfile(models.Model):
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
 
-    is_approved = models.BooleanField(default=True) # सेलर को अपलोड की तुरंत अनुमति
+    is_approved = models.BooleanField(default=True)
     quality_score = models.DecimalField(max_digits=3, decimal_places=1, default=Decimal('5.0'))
     is_orbiskart_mall = models.BooleanField(default=False)
 
@@ -147,7 +147,7 @@ class Product(models.Model):
     weight_grams = models.IntegerField(default=300)
     stock = models.IntegerField(default=10)
 
-    # अपलोड होते ही तुरंत लाइव होने के लिए True
+    # अपलोड होते ही तुरंत लाइव
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -159,6 +159,56 @@ class Product(models.Model):
             self.hsn_code = self.category_policy.hsn_code
             self.gst_rate = self.category_policy.gst_rate
         super().save(*args, **kwargs)
+
+    # गायब हुआ फ़ंक्शन वापस जोड़ा गया
+    def calculate_transparency_ledger(self):
+        gross = Decimal(str(self.price or 0))
+        rate = getattr(self, 'gst_rate', Decimal('18.00')) or Decimal('18.00')
+        plat_rate = Decimal('3.00')
+
+        if hasattr(self, 'category_policy') and self.category_policy:
+            plat_rate = getattr(self.category_policy, 'platform_fee_percent', Decimal('3.00'))
+        elif self.vendor:
+            plat_rate = getattr(self.vendor, 'commission_rate', Decimal('3.00'))
+
+        days = 7
+        if hasattr(self, 'category_policy') and self.category_policy:
+            days = getattr(self.category_policy, 'settlement_days', 7)
+
+        gst_divisor = Decimal('1') + (rate / Decimal('100'))
+        taxable_base = (gross / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        product_gst = gross - taxable_base
+
+        pg_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        pg_tax = (pg_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_pg = pg_fee + pg_tax
+
+        plat_fee = (gross * (plat_rate / Decimal('100'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        plat_tax = (plat_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total_platform = plat_fee + plat_tax
+
+        weight = getattr(self, 'weight_grams', 500) or 500
+        rate_card = ShippingRateCard.objects.filter(
+            max_weight_grams__gte=weight,
+            is_active=True
+        ).order_by('forward_charge').first()
+
+        fwd_ship = rate_card.forward_charge if rate_card else Decimal('50.00')
+        rto_cost = rate_card.rto_charge if rate_card else Decimal('40.00')
+
+        net_payout = gross - total_pg - total_platform - fwd_ship
+
+        return {
+            "gross_price": float(gross),
+            "gst_amount": float(product_gst),
+            "gst_rate": float(rate),
+            "gateway_charge": float(total_pg),
+            "platform_fee": float(total_platform),
+            "forward_courier": float(fwd_ship),
+            "rto_penalty_risk": float(rto_cost),
+            "net_seller_payout": float(net_payout),
+            "settlement_period": f"{days} वर्किंग डेज"
+        }
 
     def __str__(self):
         return f"{self.title} (₹{self.price})"
