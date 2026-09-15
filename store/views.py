@@ -227,10 +227,25 @@ class CreateOrderView(APIView):
                 for item in cart_items
             )
 
+            # वज़न के आधार पर ऑटोमैटिक डिलीवरी फ़ीस तय करना
+            total_cart_weight = sum(
+                (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity 
+                for item in cart_items
+            )
+            rate_card = ShippingRateCard.objects.filter(
+                max_weight_grams__gte=total_cart_weight
+            ).order_by('max_weight_grams').first()
+
+            if rate_card:
+                delivery_fee = Decimal(str(rate_card.forward_charge))
+            else:
+                extra_weight = max(0, total_cart_weight - 500)
+                extra_slabs = (extra_weight + 499) // 500
+                delivery_fee = Decimal('50.00') + Decimal(str(extra_slabs * 30))
+
             gst_divisor = Decimal('1.18')
             base_price = (subtotal / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tax_amount = (subtotal - base_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            delivery_fee = Decimal('0.00')
             discount_amount = max(Decimal('0.00'), original_subtotal - subtotal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             total_price = subtotal + delivery_fee
 
@@ -633,17 +648,23 @@ class VerifyRazorpayPaymentView(APIView):
                 order.save()
 
                 # पारदर्शी कटौती स्लिप जनरेट करना
-                for item in order.items.select_related('vendor', 'product').all():
+                for item in order.items.select_related('vendor', 'product', 'product__category_policy').all():
                     if item.vendor:
                         gross = item.price * Decimal(str(item.quantity))
                         pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         
+                        item_weight = (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity
                         rate_card = ShippingRateCard.objects.filter(
-                            max_weight_grams__gte=item.product.weight_grams
+                            max_weight_grams__gte=item_weight
                         ).order_by('max_weight_grams').first()
                         courier_charge = rate_card.forward_charge if rate_card else Decimal('50.00')
 
-                        platform_comm = ((gross * item.vendor.commission_rate) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                        # वेंडर या कैटेगरी पॉलिसी के आधार पर डायनामिक कमीशन
+                        comm_rate = item.vendor.commission_rate
+                        if hasattr(item.product, 'category_policy') and item.product.category_policy:
+                            comm_rate = item.product.category_policy.commission_rate
+                        
+                        platform_comm = ((gross * Decimal(str(comm_rate))) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         net_settled = gross - pg_charge - courier_charge - platform_comm
 
                         SellerDeductionSlip.objects.create(
@@ -704,11 +725,11 @@ class UtilityBillEngineView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 14. Central ECO Live Master Ledger API ---
+# --- 14. Central ECO Live Master Ledger API (Fully Dynamic & Automated) ---
 class CentralEcoMasterLedgerView(APIView):
     """
     धारा 52 CGST (1% TCS), 18% GST ऑन कमीशन, 2% गेटवे शुल्क,
-    और कूरियर चार्ज काटकर सेलर नेट पेआउट का ऑटोमैटिक हिसाब।
+    वजन आधारित कूरियर चार्ज और कैटेगरी अनुसार डायनामिक कमीशन काटकर शुद्ध सेलर पेआउट का हिसाब।
     """
     permission_classes = [permissions.AllowAny]
 
@@ -730,18 +751,55 @@ class CentralEcoMasterLedgerView(APIView):
             if gross <= 0:
                 continue
 
-            gateway_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'))
-            platform_fee = (gross * Decimal('0.03')).quantize(Decimal('0.01'))
-            gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'))
-            tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'))
-            
-            # ऑटोमैटिक कूरियर डिलीवरी शुल्क (ऑर्डर के अनुसार या डिफ़ॉल्ट 50.00)
-            courier_charge = Decimal(str(getattr(o, 'delivery_fee', 0) or 50.00)).quantize(Decimal('0.01'))
-            
-            # कूरियर चार्ज सहित कुल कटौतियां
-            total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
-            seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'))
+            order_items = o.items.select_related('product', 'vendor', 'product__category_policy').all()
 
+            # 1. पार्सल के कुल वज़न के आधार पर कूरियर डिलीवरी चार्ज
+            total_weight = sum((getattr(item.product, 'weight_grams', 500) or 500) * item.quantity for item in order_items)
+            
+            rate_card = ShippingRateCard.objects.filter(
+                max_weight_grams__gte=total_weight
+            ).order_by('max_weight_grams').first()
+
+            if rate_card:
+                courier_charge = Decimal(str(rate_card.forward_charge))
+            elif getattr(o, 'delivery_fee', None) and Decimal(str(o.delivery_fee)) > 0:
+                courier_charge = Decimal(str(o.delivery_fee))
+            else:
+                extra_weight = max(0, total_weight - 500)
+                extra_slabs = (extra_weight + 499) // 500
+                courier_charge = Decimal('50.00') + Decimal(str(extra_slabs * 30))
+
+            courier_charge = courier_charge.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # 2. प्रोडक्ट/कैटेगरी/प्राइस स्लैब के आधार पर डायनामिक प्लेटफ़ॉर्म कमीशन
+            total_platform_fee = Decimal('0.00')
+            for item in order_items:
+                item_price = Decimal(str(item.price)) * item.quantity
+                
+                # यदि कैटेगरी पॉलिसी में कमीशन तय है, अन्यथा स्लैब (₹1000 तक 5%, ऊपर 3%)
+                if hasattr(item.product, 'category_policy') and item.product.category_policy:
+                    comm_pct = Decimal(str(item.product.category_policy.commission_rate))
+                elif item_price < Decimal('1000.00'):
+                    comm_pct = Decimal('5.0')
+                else:
+                    comm_pct = Decimal('3.0')
+
+                total_platform_fee += (item_price * (comm_pct / Decimal('100.0')))
+
+            platform_fee = total_platform_fee.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # 3. पेमेंट गेटवे शुल्क (सकल राशि का 2%)
+            gateway_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # 4. कमीशन पर 18% GST और धारा 52 के तहत 1% TCS
+            gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # 5. शुद्ध सेलर पेआउट (कटौतियां घटाकर)
+            total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
+            seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # पूल्स में योग जोड़ना
             gross_volume += gross
             net_company_commission += platform_fee
             gst_liability_pool += gst_on_fee
@@ -752,7 +810,7 @@ class CentralEcoMasterLedgerView(APIView):
 
             master_records.append({
                 'order_id': f"ORD-{o.id}",
-                'date': o.created_at.strftime('%d %b %Y') if hasattr(o, 'created_at') and o.created_at else timezone.now().strftime('%d %b %Y'),
+                'date': o.created_at.strftime('%d %b %Y') if getattr(o, 'created_at', None) else timezone.now().strftime('%d %b %Y'),
                 'buyer': getattr(o.user, 'username', 'Direct Buyer') if o.user else 'Direct Buyer',
                 'gross_amount': float(gross),
                 'gateway_2pct': float(gateway_fee),
@@ -760,10 +818,11 @@ class CentralEcoMasterLedgerView(APIView):
                 'gst_18pct': float(gst_on_fee),
                 'tcs_1pct': float(tcs_gov),
                 'courier_charge': float(courier_charge),
+                'weight_grams': total_weight,
                 'seller_net': float(seller_net),
                 'status': getattr(o, 'status', 'Confirmed'),
                 'escrow_status': 'Locked in Escrow (T+2)',
-                'weight_audit': 'Verified',
+                'weight_audit': f"{total_weight}g Verified",
                 'utr_ref': f"UTR-ECO-{o.id}-LIVE"
             })
 
@@ -772,7 +831,7 @@ class CentralEcoMasterLedgerView(APIView):
                 'gross_sales': float(gross_volume),
                 'company_net_profit': float(net_company_commission),
                 'gst_pool_18': float(gst_liability_pool),
-                'tcs_pool_1': float(tcs_gov),
+                'tcs_pool_1': float(tcs_collected_pool),
                 'gateway_pool_2': float(gateway_deductions_pool),
                 'courier_pool': float(courier_deductions_pool),
                 'seller_payable_total': float(seller_payable_pool),
