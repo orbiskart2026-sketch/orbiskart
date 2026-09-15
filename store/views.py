@@ -24,12 +24,60 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from .models import (
     Category, CategoryPolicy, ShippingRateCard, Product, 
     Cart, CartItem, Order, OrderItem, Review, 
-    VendorProfile, SellerDeductionSlip, ImmutableMasterTransaction
+    VendorProfile, SellerDeductionSlip, ImmutableMasterTransaction,
+    OrderShippingReconciliation
 )
 from .serializers import (
     CategorySerializer, CategoryPolicySerializer,
     ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
 )
+
+
+# --- 0. Multi-Courier Dynamic Logistics Engine (Weight + Zone + Lowest Cost) ---
+def get_best_courier_charge(buyer_pincode, total_weight_grams, payment_mode='PREPAID'):
+    """
+    खरीदार के पिनकोड और पार्सल के कुल वज़न के आधार पर 
+    सबसे किफ़ायती कूरियर पार्टनर, ज़ोन और सटीक फ्रेट चार्ज निकालता है।
+    """
+    weight = max(500, int(total_weight_grams or 500))
+    extra_slabs = (weight - 500 + 499) // 500
+
+    prefix = str(buyer_pincode)[:2] if buyer_pincode else ""
+    if prefix in ['82', '83']:
+        target_zone = "Zone B"
+    elif prefix in ['11', '40', '56']:
+        target_zone = "Zone C"
+    elif prefix in ['18', '19', '79']:
+        target_zone = "Zone E"
+    else:
+        target_zone = "Zone D"
+
+    rates = ShippingRateCard.objects.filter(zone=target_zone, is_active=True)
+    courier_options = []
+
+    for r in rates:
+        base_rate = getattr(r, 'forward_charge', None) or getattr(r, 'base_rate', Decimal('50.00'))
+        add_rate = getattr(r, 'per_additional_500g', Decimal('20.00'))
+        cost = Decimal(str(base_rate)) + (Decimal(str(extra_slabs)) * Decimal(str(add_rate)))
+        
+        if payment_mode == 'COD':
+            cost += Decimal(str(getattr(r, 'cod_charge', 0.00)))
+
+        courier_options.append({
+            'courier': r.courier_partner,
+            'cost': cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+            'zone': target_zone
+        })
+
+    if courier_options:
+        best_option = min(courier_options, key=lambda x: x['cost'])
+        return best_option['cost'], best_option['courier'], best_option['zone'], weight
+    else:
+        # फ़ॉलबैक सुरक्षा जाल
+        base = Decimal('50.00')
+        add = Decimal('20.00')
+        calc_cost = (base + (Decimal(str(extra_slabs)) * add)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        return calc_cost, "Auto-Aggregator", target_zone, weight
 
 
 # --- 1. User Registration API ---
@@ -202,7 +250,7 @@ class RemoveFromCartView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 5. Order Checkout with Auto-Generated Delivery/Return OTP ---
+# --- 5. Order Checkout with Multi-Courier Rate Selection ---
 class CreateOrderView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -210,6 +258,7 @@ class CreateOrderView(APIView):
         try:
             user = request.user
             shipping_address = request.data.get('shipping_address', '').strip()
+            shipping_pincode = request.data.get('shipping_pincode', '').strip()
             payment_method = request.data.get('payment_method', 'COD')
 
             if not shipping_address:
@@ -227,45 +276,51 @@ class CreateOrderView(APIView):
                 for item in cart_items
             )
 
-            # वज़न के आधार पर ऑटोमैटिक डिलीवरी फ़ीस तय करना
+            # कुल वज़न व मल्टी-कूरियर दर गणना
             total_cart_weight = sum(
                 (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity 
                 for item in cart_items
             )
-            rate_card = ShippingRateCard.objects.filter(
-                max_weight_grams__gte=total_cart_weight
-            ).order_by('max_weight_grams').first()
-
-            if rate_card:
-                delivery_fee = Decimal(str(rate_card.forward_charge))
-            else:
-                extra_weight = max(0, total_cart_weight - 500)
-                extra_slabs = (extra_weight + 499) // 500
-                delivery_fee = Decimal('50.00') + Decimal(str(extra_slabs * 30))
+            courier_charge, best_courier, zone, billed_weight = get_best_courier_charge(
+                shipping_pincode, total_cart_weight, payment_mode=payment_method
+            )
 
             gst_divisor = Decimal('1.18')
             base_price = (subtotal / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tax_amount = (subtotal - base_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             discount_amount = max(Decimal('0.00'), original_subtotal - subtotal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            total_price = subtotal + delivery_fee
+            total_price = subtotal + courier_charge
 
             delivery_otp = f"{random.randint(100000, 999999)}"
             return_otp = f"{random.randint(100000, 999999)}"
+            awb_number = f"AWB-{uuid.uuid4().hex[:10].upper()}"
 
             with transaction.atomic():
                 order = Order.objects.create(
                     user=user,
                     base_price=base_price,
                     tax_amount=tax_amount,
-                    delivery_fee=delivery_fee,
+                    delivery_fee=courier_charge,
                     discount_amount=discount_amount,
                     total_price=total_price,
                     payment_method=payment_method,
                     shipping_address=shipping_address,
+                    shipping_pincode=shipping_pincode,
                     status='Confirmed' if payment_method == 'COD' else 'Pending Payment',
                     delivery_otp=delivery_otp,
                     return_otp=return_otp,
-                    awb_number=f"DEL-{random.randint(10000000, 99999999)}"
+                    courier_partner=best_courier,
+                    awb_number=awb_number
+                )
+
+                # कूरियर मिलान रिकॉर्ड बनाना
+                OrderShippingReconciliation.objects.create(
+                    order=order,
+                    courier_partner=best_courier,
+                    awb_number=awb_number,
+                    estimated_weight_g=billed_weight,
+                    estimated_charge=courier_charge,
+                    status='Estimated'
                 )
 
                 order_items_to_create = [
@@ -285,6 +340,9 @@ class CreateOrderView(APIView):
                 'message': 'Order placed successfully',
                 'order_id': order.id,
                 'status': order.status,
+                'courier_partner': best_courier,
+                'shipping_zone': zone,
+                'delivery_fee': str(courier_charge),
                 'delivery_otp': order.delivery_otp,
                 'total_price': str(order.total_price)
             }, status=status.HTTP_201_CREATED)
@@ -313,6 +371,9 @@ class VerifyOrderOTPView(APIView):
                 if str(order.delivery_otp).strip() == entered_otp:
                     order.status = 'Delivered'
                     order.save()
+                    if hasattr(order, 'shipping_recon'):
+                        order.shipping_recon.status = 'Delivered'
+                        order.shipping_recon.save()
                     return Response({'success': True, 'message': f'ऑर्डर #{order.id} सफलतापूर्वक डिलीवर हुआ।'}, status=status.HTTP_200_OK)
                 return Response({'error': 'गलत डिलीवरी OTP! पार्सल न दें।'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -397,8 +458,8 @@ class DownloadInvoicePDFView(APIView):
 
             customer_data = [
                 [
-                    Paragraph("<b>Bill To / Ship To:</b><br/>" + str(order.user.username) + "<br/>" + str(order.shipping_address or 'N/A'), normal_style),
-                    Paragraph("<b>Order Details:</b><br/><b>Order ID:</b> #" + str(order.id) + "<br/><b>AWB:</b> " + str(order.awb_number or 'N/A') + "<br/><b>Payment Mode:</b> " + str(order.payment_method) + "<br/><b>Status:</b> " + str(order.status), normal_style)
+                    Paragraph("<b>Bill To / Ship To:</b><br/>" + str(order.user.username) + "<br/>" + str(order.shipping_address or 'N/A') + "<br/>Pincode: " + str(order.shipping_pincode or 'N/A'), normal_style),
+                    Paragraph("<b>Order Details:</b><br/><b>Order ID:</b> #" + str(order.id) + "<br/><b>Courier:</b> " + str(order.courier_partner) + "<br/><b>AWB:</b> " + str(order.awb_number or 'N/A') + "<br/><b>Payment Mode:</b> " + str(order.payment_method) + "<br/><b>Status:</b> " + str(order.status), normal_style)
                 ]
             ]
             t_cust = Table(customer_data, colWidths=[270, 260])
@@ -617,7 +678,7 @@ class CreateRazorpayOrderView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 12. Razorpay: Verify Payment & Auto Transparency Ledger Entry API ---
+# --- 12. Razorpay: Verify Payment & Multi-Courier Deduction Slip API ---
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -647,17 +708,16 @@ class VerifyRazorpayPaymentView(APIView):
                 order.payment_method = 'Razorpay-Prepaid'
                 order.save()
 
-                # पारदर्शी कटौती स्लिप जनरेट करना
+                # पारदर्शी कटौती स्लिप जनरेट करना (मल्टी-कूरियर लॉजिक के साथ)
                 for item in order.items.select_related('vendor', 'product', 'product__category_policy').all():
                     if item.vendor:
                         gross = item.price * Decimal(str(item.quantity))
                         pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                         
                         item_weight = (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity
-                        rate_card = ShippingRateCard.objects.filter(
-                            max_weight_grams__gte=item_weight
-                        ).order_by('max_weight_grams').first()
-                        courier_charge = rate_card.forward_charge if rate_card else Decimal('50.00')
+                        courier_charge, best_courier, zone, _ = get_best_courier_charge(
+                            order.shipping_pincode, item_weight, payment_mode='Razorpay-Prepaid'
+                        )
 
                         # वेंडर या कैटेगरी पॉलिसी के आधार पर डायनामिक कमीशन
                         comm_rate = item.vendor.commission_rate
@@ -725,11 +785,11 @@ class UtilityBillEngineView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 14. Central ECO Live Master Ledger API (Fully Dynamic & Automated) ---
+# --- 14. Central ECO Live Master Ledger API (Multi-Courier + Category Commission) ---
 class CentralEcoMasterLedgerView(APIView):
     """
     धारा 52 CGST (1% TCS), 18% GST ऑन कमीशन, 2% गेटवे शुल्क,
-    वजन आधारित कूरियर चार्ज और कैटेगरी अनुसार डायनामिक कमीशन काटकर शुद्ध सेलर पेआउट का हिसाब।
+    मल्टी-कूरियर (वज़न व ज़ोन) आधारित शिपिंग और डायनामिक कमीशन काटकर शुद्ध सेलर पेआउट का हिसाब।
     """
     permission_classes = [permissions.AllowAny]
 
@@ -753,32 +813,27 @@ class CentralEcoMasterLedgerView(APIView):
 
             order_items = o.items.select_related('product', 'vendor', 'product__category_policy').all()
 
-            # 1. पार्सल के कुल वज़न के आधार पर कूरियर डिलीवरी चार्ज
+            # 1. पार्सल के कुल वज़न और पिनकोड से मल्टी-कूरियर डायनामिक चार्ज
             total_weight = sum((getattr(item.product, 'weight_grams', 500) or 500) * item.quantity for item in order_items)
             
-            rate_card = ShippingRateCard.objects.filter(
-                max_weight_grams__gte=total_weight
-            ).order_by('max_weight_grams').first()
+            pincode = getattr(o, 'shipping_pincode', None)
+            pay_method = getattr(o, 'payment_method', 'PREPAID')
 
-            if rate_card:
-                courier_charge = Decimal(str(rate_card.forward_charge))
-            elif getattr(o, 'delivery_fee', None) and Decimal(str(o.delivery_fee)) > 0:
-                courier_charge = Decimal(str(o.delivery_fee))
-            else:
-                extra_weight = max(0, total_weight - 500)
-                extra_slabs = (extra_weight + 499) // 500
-                courier_charge = Decimal('50.00') + Decimal(str(extra_slabs * 30))
+            courier_charge, chosen_courier, zone, billed_weight = get_best_courier_charge(
+                pincode, total_weight, payment_mode=pay_method
+            )
 
-            courier_charge = courier_charge.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            # यदि ऑर्डर पर पहले से डिलीवरी फ़ीस तय हो, तो उसे प्राथमिकता दें
+            if getattr(o, 'delivery_fee', None) and Decimal(str(o.delivery_fee)) > 0:
+                courier_charge = Decimal(str(o.delivery_fee)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
             # 2. प्रोडक्ट/कैटेगरी/प्राइस स्लैब के आधार पर डायनामिक प्लेटफ़ॉर्म कमीशन
             total_platform_fee = Decimal('0.00')
             for item in order_items:
                 item_price = Decimal(str(item.price)) * item.quantity
                 
-                # यदि कैटेगरी पॉलिसी में कमीशन तय है, अन्यथा स्लैब (₹1000 तक 5%, ऊपर 3%)
                 if hasattr(item.product, 'category_policy') and item.product.category_policy:
-                    comm_pct = Decimal(str(item.product.category_policy.commission_rate))
+                    comm_pct = Decimal(str(item.product.category_policy.platform_fee_percent or item.product.category_policy.commission_rate))
                 elif item_price < Decimal('1000.00'):
                     comm_pct = Decimal('5.0')
                 else:
@@ -795,7 +850,7 @@ class CentralEcoMasterLedgerView(APIView):
             gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # 5. शुद्ध सेलर पेआउट (कटौतियां घटाकर)
+            # 5. शुद्ध सेलर पेआउट (Net Payout)
             total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
             seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
@@ -818,11 +873,13 @@ class CentralEcoMasterLedgerView(APIView):
                 'gst_18pct': float(gst_on_fee),
                 'tcs_1pct': float(tcs_gov),
                 'courier_charge': float(courier_charge),
-                'weight_grams': total_weight,
+                'courier_partner': getattr(o, 'courier_partner', chosen_courier) or chosen_courier,
+                'weight_grams': billed_weight,
+                'zone': zone,
                 'seller_net': float(seller_net),
                 'status': getattr(o, 'status', 'Confirmed'),
                 'escrow_status': 'Locked in Escrow (T+2)',
-                'weight_audit': f"{total_weight}g Verified",
+                'weight_audit': f"{billed_weight}g • {zone} ({chosen_courier})",
                 'utr_ref': f"UTR-ECO-{o.id}-LIVE"
             })
 
