@@ -22,7 +22,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from .models import (
-    Category, CategoryPolicy, ShippingRateCard, Product, 
+    Category, CategoryPolicy, ShippingRateCard, Product, ProductImage,
     Cart, CartItem, Order, OrderItem, Review, 
     VendorProfile, SellerDeductionSlip, ImmutableMasterTransaction,
     OrderShippingReconciliation
@@ -100,14 +100,14 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Seller Upload API ---
+# --- 2. Product List & Instant Multi-Media Upload API ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         try:
-            queryset = Product.objects.select_related('category', 'category_policy').all()
+            queryset = Product.objects.filter(is_active=True).select_related('category', 'category_policy').prefetch_related('additional_images').all()
 
             search_query = request.query_params.get('search', '').strip()
             if search_query:
@@ -141,17 +141,55 @@ class ProductListView(APIView):
 
     def post(self, request):
         try:
-            data = request.data.copy()
-            serializer = ProductSerializer(data=data, context={'request': request})
-            if serializer.is_valid():
-                if request.user.is_authenticated:
-                    serializer.save(seller=request.user)
-                else:
-                    serializer.save()
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            data = request.data
+            title = data.get('title')
+            price = data.get('price')
+            original_price = data.get('original_price') or price
+            weight_grams = data.get('weight_grams', 500)
+            description = data.get('description', '')
+            primary_image = request.FILES.get('image')
+            video = request.FILES.get('video')
+
+            if not title or not price:
+                return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            vendor_profile = None
+            if request.user.is_authenticated:
+                vendor_profile = getattr(request.user, 'vendor_profile', None)
+
+            with transaction.atomic():
+                # तुरंत लाइव पब्लिशिंग (Instant Live)
+                product = Product.objects.create(
+                    seller=request.user if request.user.is_authenticated else None,
+                    vendor=vendor_profile,
+                    title=title,
+                    description=description,
+                    price=Decimal(str(price)),
+                    original_price=Decimal(str(original_price)),
+                    weight_grams=int(weight_grams or 500),
+                    image=primary_image,
+                    video=video,
+                    is_active=True
+                )
+
+                # मल्टीपल इमेजेस (Gallery Images) जोड़ना
+                gallery_files = request.FILES.getlist('gallery_images')
+                if gallery_files:
+                    ProductImage.objects.bulk_create([
+                        ProductImage(product=product, image=img) for img in gallery_files
+                    ])
+
+            return Response({
+                'success': True,
+                'message': 'उत्पाद सफलतापूर्वक तुरंत लाइव पब्लिश हो चुका है!',
+                'product_id': product.id,
+                'title': product.title,
+                'price': str(product.price),
+                'is_active': product.is_active
+            }, status=status.HTTP_201_CREATED)
+
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'अपलोड त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # --- 3. Product Detail API ---
@@ -160,7 +198,7 @@ class ProductDetailView(APIView):
 
     def get(self, request, pk):
         try:
-            product = Product.objects.select_related('category', 'category_policy').prefetch_related('reviews__user').filter(pk=pk).first()
+            product = Product.objects.select_related('category', 'category_policy').prefetch_related('reviews__user', 'additional_images').filter(pk=pk).first()
             if not product:
                 return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
             serializer = ProductSerializer(product, context={'request': request})
@@ -719,7 +757,6 @@ class VerifyRazorpayPaymentView(APIView):
                             order.shipping_pincode, item_weight, payment_mode='Razorpay-Prepaid'
                         )
 
-                        # वेंडर या कैटेगरी पॉलिसी के आधार पर डायनामिक कमीशन
                         comm_rate = item.vendor.commission_rate
                         if hasattr(item.product, 'category_policy') and item.product.category_policy:
                             comm_rate = item.product.category_policy.commission_rate
@@ -787,10 +824,6 @@ class UtilityBillEngineView(APIView):
 
 # --- 14. Central ECO Live Master Ledger API (Multi-Courier + Category Commission) ---
 class CentralEcoMasterLedgerView(APIView):
-    """
-    धारा 52 CGST (1% TCS), 18% GST ऑन कमीशन, 2% गेटवे शुल्क,
-    मल्टी-कूरियर (वज़न व ज़ोन) आधारित शिपिंग और डायनामिक कमीशन काटकर शुद्ध सेलर पेआउट का हिसाब।
-    """
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -813,7 +846,6 @@ class CentralEcoMasterLedgerView(APIView):
 
             order_items = o.items.select_related('product', 'vendor', 'product__category_policy').all()
 
-            # 1. पार्सल के कुल वज़न और पिनकोड से मल्टी-कूरियर डायनामिक चार्ज
             total_weight = sum((getattr(item.product, 'weight_grams', 500) or 500) * item.quantity for item in order_items)
             
             pincode = getattr(o, 'shipping_pincode', None)
@@ -823,11 +855,9 @@ class CentralEcoMasterLedgerView(APIView):
                 pincode, total_weight, payment_mode=pay_method
             )
 
-            # यदि ऑर्डर पर पहले से डिलीवरी फ़ीस तय हो, तो उसे प्राथमिकता दें
             if getattr(o, 'delivery_fee', None) and Decimal(str(o.delivery_fee)) > 0:
                 courier_charge = Decimal(str(o.delivery_fee)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # 2. प्रोडक्ट/कैटेगरी/प्राइस स्लैब के आधार पर डायनामिक प्लेटफ़ॉर्म कमीशन
             total_platform_fee = Decimal('0.00')
             for item in order_items:
                 item_price = Decimal(str(item.price)) * item.quantity
@@ -842,19 +872,14 @@ class CentralEcoMasterLedgerView(APIView):
                 total_platform_fee += (item_price * (comm_pct / Decimal('100.0')))
 
             platform_fee = total_platform_fee.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            # 3. पेमेंट गेटवे शुल्क (सकल राशि का 2%)
             gateway_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # 4. कमीशन पर 18% GST और धारा 52 के तहत 1% TCS
             gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # 5. शुद्ध सेलर पेआउट (Net Payout)
             total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
             seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-            # पूल्स में योग जोड़ना
             gross_volume += gross
             net_company_commission += platform_fee
             gst_liability_pool += gst_on_fee
