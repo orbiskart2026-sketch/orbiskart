@@ -707,8 +707,8 @@ class UtilityBillEngineView(APIView):
 # --- 14. Central ECO Live Master Ledger API ---
 class CentralEcoMasterLedgerView(APIView):
     """
-    धारा 52 CGST (1% TCS), 18% GST ऑन कमीशन, 2% गेटवे शुल्क
-    और सेलर नेट पेआउट का ऑटोमैटिक हिसाब।
+    धारा 52 CGST (1% TCS), 18% GST ऑन कमीशन, 2% गेटवे शुल्क,
+    और कूरियर चार्ज काटकर सेलर नेट पेआउट का ऑटोमैटिक हिसाब।
     """
     permission_classes = [permissions.AllowAny]
 
@@ -720,6 +720,7 @@ class CentralEcoMasterLedgerView(APIView):
         gst_liability_pool = Decimal('0.00')
         tcs_collected_pool = Decimal('0.00')
         gateway_deductions_pool = Decimal('0.00')
+        courier_deductions_pool = Decimal('0.00')
         seller_payable_pool = Decimal('0.00')
         
         master_records = []
@@ -734,14 +735,19 @@ class CentralEcoMasterLedgerView(APIView):
             gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'))
             tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'))
             
-            total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov
-            seller_net = (gross - total_cuts).quantize(Decimal('0.01'))
+            # ऑटोमैटिक कूरियर डिलीवरी शुल्क (ऑर्डर के अनुसार या डिफ़ॉल्ट 50.00)
+            courier_charge = Decimal(str(getattr(o, 'delivery_fee', 0) or 50.00)).quantize(Decimal('0.01'))
+            
+            # कूरियर चार्ज सहित कुल कटौतियां
+            total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
+            seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'))
 
             gross_volume += gross
             net_company_commission += platform_fee
             gst_liability_pool += gst_on_fee
             tcs_collected_pool += tcs_gov
             gateway_deductions_pool += gateway_fee
+            courier_deductions_pool += courier_charge
             seller_payable_pool += seller_net
 
             master_records.append({
@@ -753,6 +759,7 @@ class CentralEcoMasterLedgerView(APIView):
                 'platform_fee_3pct': float(platform_fee),
                 'gst_18pct': float(gst_on_fee),
                 'tcs_1pct': float(tcs_gov),
+                'courier_charge': float(courier_charge),
                 'seller_net': float(seller_net),
                 'status': getattr(o, 'status', 'Confirmed'),
                 'escrow_status': 'Locked in Escrow (T+2)',
@@ -765,8 +772,9 @@ class CentralEcoMasterLedgerView(APIView):
                 'gross_sales': float(gross_volume),
                 'company_net_profit': float(net_company_commission),
                 'gst_pool_18': float(gst_liability_pool),
-                'tcs_pool_1': float(tcs_collected_pool),
+                'tcs_pool_1': float(tcs_gov),
                 'gateway_pool_2': float(gateway_deductions_pool),
+                'courier_pool': float(courier_deductions_pool),
                 'seller_payable_total': float(seller_payable_pool),
             },
             'audit_records': master_records
