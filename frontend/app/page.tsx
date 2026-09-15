@@ -54,17 +54,14 @@ export default function HomePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // User details & Dynamic Greeting
   const [user, setUser] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [mobile, setMobile] = useState<string | null>(null);
   const [greeting, setGreeting] = useState('Good Day');
 
-  // Badges & Counters
   const [cartCount, setCartCount] = useState<number>(0);
   const [wishlist, setWishlist] = useState<number[]>([]);
 
-  // Filters
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('newest');
@@ -101,7 +98,6 @@ export default function HomePage() {
   }, []);
 
   const fetchCartCount = async () => {
-    // 1. पहले लोकल स्टोरेज से काउंट लें ताकि तुरंत दिखे
     try {
       const localCart = JSON.parse(localStorage.getItem('user_cart_items') || '[]');
       const localTotal = localCart.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
@@ -110,7 +106,6 @@ export default function HomePage() {
       // ignore
     }
 
-    // 2. बैकएंड से सिंक करें
     const token = localStorage.getItem('access_token');
     if (!token) return;
     try {
@@ -212,7 +207,6 @@ export default function HomePage() {
   const handleAddToCart = async (product: Product, redirectToCart = false) => {
     setAddingId(product.id);
 
-    // 1. तुरंत लोकल स्टोरेज में कार्ट सेव करें
     const existingCart: any[] = JSON.parse(localStorage.getItem('user_cart_items') || '[]');
     const existingIndex = existingCart.findIndex((i: any) => i.product?.id === product.id);
 
@@ -240,7 +234,6 @@ export default function HomePage() {
     localStorage.setItem('user_cart_items', JSON.stringify(existingCart));
     setCartCount(existingCart.reduce((sum, item) => sum + item.quantity, 0));
 
-    // 2. बैकएंड API को बैकग्राउंड में भेजें
     const token = localStorage.getItem('access_token');
     if (token) {
       fetch(`${API_BASE_URL}/api/cart/add/`, {
@@ -263,8 +256,8 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20">
-      {/* Header with OrbisKart Branding */}
+    <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20 font-sans">
+      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
           <Link href="/" className="text-xl sm:text-2xl font-black text-blue-600 flex-shrink-0 tracking-tight">
@@ -292,7 +285,16 @@ export default function HomePage() {
           </div>
 
           {/* User Nav */}
-          <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+          <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
+            {/* Become a Seller Button */}
+            <Link
+              href="/seller/register"
+              className="hidden lg:flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100 transition"
+            >
+              <span>🏪</span>
+              <span>Sell on Orbis</span>
+            </Link>
+
             {user ? (
               <div className="flex items-center space-x-2 bg-blue-50 border border-blue-200 px-2 sm:px-3 py-1 rounded-xl">
                 <span className="text-[10px] sm:text-xs font-bold text-blue-800">
@@ -331,7 +333,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Categories Bar with Left & Right Arrows */}
+        {/* Categories Bar */}
         <div className="bg-white border-t border-gray-100 relative">
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
             <button
@@ -522,7 +524,7 @@ export default function HomePage() {
               return (
                 <div
                   key={product.id}
-                  className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative"
+                  className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative group"
                 >
                   <button
                     onClick={() => toggleWishlist(product.id)}
@@ -531,33 +533,40 @@ export default function HomePage() {
                     {isFav ? '❤️' : '🤍'}
                   </button>
 
-                  <div>
-                    <div className="w-full h-36 sm:h-40 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative">
-                      {imageUrl ? (
-                        <img src={imageUrl} alt={product.title} className="w-full h-full object-contain p-2" />
-                      ) : (
-                        <span className="text-xs text-gray-400 font-bold">No Image</span>
-                      )}
+                  {/* उत्पाद पर क्लिक करने पर डिटेल व अल्ट्रा ज़ूम पेज खुलेगा */}
+                  <Link href={`/products/${product.id}`} className="block cursor-pointer">
+                    <div>
+                      <div className="w-full h-36 sm:h-40 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative">
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={product.title}
+                            className="w-full h-full object-contain p-2 group-hover:scale-105 transition duration-300"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-400 font-bold">No Image</span>
+                        )}
 
-                      <div className="absolute top-2 left-2 flex flex-col gap-1">
-                        {product.category_name && (
-                          <span className="bg-white/95 text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700">
-                            {product.category_name}
-                          </span>
-                        )}
-                        {hasPriceDrop && (
-                          <span className="bg-emerald-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs">
-                            PRICE DROP
-                          </span>
-                        )}
+                        <div className="absolute top-2 left-2 flex flex-col gap-1">
+                          {product.category_name && (
+                            <span className="bg-white/95 text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700">
+                              {product.category_name}
+                            </span>
+                          )}
+                          {hasPriceDrop && (
+                            <span className="bg-emerald-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs">
+                              PRICE DROP
+                            </span>
+                          )}
+                        </div>
                       </div>
+
+                      <h3 className="font-bold text-gray-900 text-xs mb-1 line-clamp-2 group-hover:text-blue-600 transition">
+                        {product.title}
+                      </h3>
+                      <p className="text-gray-500 text-[11px] line-clamp-1 mb-2">{product.description}</p>
                     </div>
 
-                    <h3 className="font-bold text-gray-900 text-xs mb-1 line-clamp-2">{product.title}</h3>
-                    <p className="text-gray-500 text-[11px] line-clamp-1 mb-2">{product.description}</p>
-                  </div>
-
-                  <div>
                     <div className="flex items-baseline space-x-2 mb-2.5">
                       <span className="text-sm sm:text-base font-black text-gray-900">₹{product.price}</span>
                       {product.original_price && (
@@ -566,35 +575,41 @@ export default function HomePage() {
                         </span>
                       )}
                     </div>
+                  </Link>
 
-                    <div className="flex gap-1.5 sm:gap-2">
-                      <button
-                        onClick={() => handleAddToCart(product, false)}
-                        disabled={addingId === product.id}
-                        className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
-                      >
-                        {addingId === product.id ? '...' : 'Add to Cart 🛒'}
-                      </button>
+                  <div className="flex gap-1.5 sm:gap-2 pt-1">
+                    <button
+                      onClick={() => handleAddToCart(product, false)}
+                      disabled={addingId === product.id}
+                      className="flex-1 bg-yellow-400 hover:bg-yellow-500 text-gray-900 font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
+                    >
+                      {addingId === product.id ? '...' : 'Add to Cart 🛒'}
+                    </button>
 
-                      <button
-                        onClick={() => handleAddToCart(product, true)}
-                        disabled={addingId === product.id}
-                        className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
-                      >
-                        ⚡ Buy Now
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleAddToCart(product, true)}
+                      disabled={addingId === product.id}
+                      className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold text-[11px] sm:text-xs py-2 rounded-lg transition cursor-pointer"
+                    >
+                      ⚡ Buy Now
+                    </button>
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-      </main>{/* Mobile Bottom Navigation */}
+      </main>
+
+      {/* Mobile Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-1.5 flex items-center justify-around z-50 md:hidden shadow-lg">
         <Link href="/" className="flex flex-col items-center py-1 flex-1">
           <span className="text-base text-blue-600">🏠</span>
           <span className="text-[10px] font-bold text-blue-600">Home</span>
+        </Link>
+        <Link href="/seller/register" className="flex flex-col items-center py-1 flex-1 text-emerald-600">
+          <span className="text-base">🏪</span>
+          <span className="text-[10px] font-bold">Sell</span>
         </Link>
         <button onClick={() => setFilterType('trending')} className="flex flex-col items-center py-1 flex-1">
           <span className="text-base text-gray-500">🔥</span>
@@ -612,10 +627,6 @@ export default function HomePage() {
         <Link href="/orders" className="flex flex-col items-center py-1 flex-1">
           <span className="text-base text-gray-500">📦</span>
           <span className="text-[10px] font-medium text-gray-500">Orders</span>
-        </Link>
-        <Link href="/account" className="flex flex-col items-center py-1 flex-1">
-          <span className="text-base text-gray-500">👤</span>
-          <span className="text-[10px] font-medium text-gray-500">Account</span>
         </Link>
       </nav>
     </div>
