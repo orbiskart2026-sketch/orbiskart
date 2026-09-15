@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
+import UltraProductViewer from '@/components/UltraProductViewer';
 
 interface Review {
   id: string | number;
@@ -13,6 +14,11 @@ interface Review {
   verifiedBuyer: boolean;
 }
 
+interface ProductImage {
+  id?: number | string;
+  image: string;
+}
+
 interface Product {
   id: string | number;
   title: string;
@@ -20,6 +26,8 @@ interface Product {
   original_price?: number;
   description?: string;
   image?: string | null;
+  video?: string | null;
+  additional_images?: ProductImage[];
   stock: number;
   category_name?: string;
 }
@@ -97,6 +105,8 @@ export default function DynamicProductPage({ params }: { params: { id: string } 
           original_price: 2999,
           description: 'High-bass wireless headphones with 40-hour battery life, active noise cancellation support, and 18% GST tax invoice.',
           image: id === '2' ? '/media/products/boat.webp' : null,
+          video: null,
+          additional_images: [],
           stock: id === '2' ? 25 : 23,
           category_name: 'Electronics',
         });
@@ -111,14 +121,34 @@ export default function DynamicProductPage({ params }: { params: { id: string } 
     };
   }, [id]);
 
-  const getProductImage = () => {
-    if (!product?.image) {
-      return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80';
+  // सभी तस्वीरों की सूची तैयार करना (मुख्य + गैलरी तस्वीरें)
+  const formatMediaUrl = (url: string) => {
+    if (!url) return 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `https://orbiskart.onrender.com${url}`;
+  };
+
+  const getGalleryImages = (): string[] => {
+    if (!product) return [];
+    const imagesList: string[] = [];
+
+    if (product.image) {
+      imagesList.push(formatMediaUrl(product.image));
     }
-    if (product.image.startsWith('http://') || product.image.startsWith('https://')) {
-      return product.image;
+
+    if (product.additional_images && product.additional_images.length > 0) {
+      product.additional_images.forEach((item) => {
+        if (item.image) {
+          imagesList.push(formatMediaUrl(item.image));
+        }
+      });
     }
-    return `https://orbiskart.onrender.com${product.image}`;
+
+    if (imagesList.length === 0) {
+      imagesList.push('https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&q=80');
+    }
+
+    return imagesList;
   };
 
   const checkDelivery = () => {
@@ -242,15 +272,13 @@ export default function DynamicProductPage({ params }: { params: { id: string } 
       </div>
 
       <div className="max-w-7xl mx-auto px-4 mt-8 grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* बायाँ: इमेज */}
+        {/* बायाँ: अल्ट्रा-स्मूद टच ज़ूम एवं मल्टीपल इमेज/वीडियो व्यूअर */}
         <div className="md:col-span-5 space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-center overflow-hidden">
-            <img
-              src={getProductImage()}
-              alt={product.title}
-              className="w-full h-96 object-contain rounded-xl hover:scale-105 transition duration-300"
-            />
-          </div>
+          <UltraProductViewer
+            images={getGalleryImages()}
+            videoUrl={product.video ? formatMediaUrl(product.video) : undefined}
+            title={product.title}
+          />
         </div>
 
         {/* दायाँ: विवरण एवं चेकआउट */}
