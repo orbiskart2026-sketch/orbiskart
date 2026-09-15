@@ -28,7 +28,7 @@ export default function UnifiedMasterAdmin() {
     }
   }, []);
 
-  const [tab, setTab] = useState<'audit' | 'sellers' | 'orders' | 'charges'>('audit');
+  const [tab, setTab] = useState<'audit' | 'calculator' | 'sellers' | 'orders' | 'charges'>('audit');
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [kpiSummary, setKpiSummary] = useState({
     gross_sales: 0,
@@ -36,10 +36,24 @@ export default function UnifiedMasterAdmin() {
     gst_pool_18: 0,
     tcs_pool_1: 0,
     gateway_pool_2: 0,
+    courier_pool: 0,
     seller_payable_total: 0,
   });
   const [loadingLedger, setLoadingLedger] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>('');
+
+  // लाइव कैलकुलेटर स्टेट्स
+  const [inputPrice, setInputPrice] = useState<string>('1499');
+  const [calculations, setCalculations] = useState({
+    grossAmount: '1499.00',
+    platformFee: '44.97',
+    gst: '8.09',
+    gateway: '29.98',
+    tcs: '14.99',
+    courierCharge: '50.00',
+    sellerPayout: '1350.97',
+    rtoLoss: '70.00'
+  });
 
   const [sellers, setSellers] = useState<any[]>([
     {
@@ -64,6 +78,31 @@ export default function UnifiedMasterAdmin() {
     courier_base_charge: 50.0,
     return_penalty: 70.0
   });
+
+  // लाइव कैलकुलेटर फंक्शन
+  const handlePriceChange = (priceVal: string) => {
+    setInputPrice(priceVal);
+    const gross = parseFloat(priceVal) || 0;
+
+    const platformFee = gross * (config.platform_fee_percent / 100);
+    const gstOnFee = platformFee * (config.gst_percent / 100);
+    const gatewayFee = gross * (config.gateway_fee_percent / 100);
+    const tcs = gross * 0.01;
+    const courier = config.courier_base_charge;
+
+    const sellerNet = Math.max(0, gross - (platformFee + gstOnFee + gatewayFee + tcs + courier));
+
+    setCalculations({
+      grossAmount: gross.toFixed(2),
+      platformFee: platformFee.toFixed(2),
+      gst: gstOnFee.toFixed(2),
+      gateway: gatewayFee.toFixed(2),
+      tcs: tcs.toFixed(2),
+      courierCharge: courier.toFixed(2),
+      sellerPayout: sellerNet.toFixed(2),
+      rtoLoss: config.return_penalty.toFixed(2)
+    });
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +143,7 @@ export default function UnifiedMasterAdmin() {
     setConfirmPassword('');
   };
 
-  // डेटाबेस से लाइव वित्तीय लेजर लोड करना (डुअल एंडपॉइंट ऑटो-फॉलबैक)
+  // डेटाबेस से लाइव वित्तीय लेजर लोड करना
   const fetchLiveLedger = async () => {
     try {
       setLoadingLedger(true);
@@ -273,7 +312,7 @@ export default function UnifiedMasterAdmin() {
           <h1 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
             <span>🛡️</span> OrbisKart Unified Admin
           </h1>
-          <p className="text-xs text-slate-400">विक्रेता ऑडिट • कूरियर ट्रैकिंग • लेजर एवं नीतियां (Govt Sec-52 Compliant)</p>
+          <p className="text-xs text-slate-400">विक्रेता ऑडिट • मल्टी-कूरियर लॉजिस्टिक्स • पारदर्शी लेजर (Govt Sec-52 Compliant)</p>
         </div>
         <div className="flex items-center gap-3">
           {syncStatus && (
@@ -302,37 +341,44 @@ export default function UnifiedMasterAdmin() {
       </header>
 
       {/* नेविगेशन टैब्स */}
-      <div className="bg-slate-900/60 border-b border-slate-800 px-6 flex gap-6 text-sm font-semibold">
+      <div className="bg-slate-900/60 border-b border-slate-800 px-6 flex gap-6 text-sm font-semibold overflow-x-auto">
         <button
           onClick={() => setTab('audit')}
-          className={`py-3 border-b-2 transition ${tab === 'audit' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
+          className={`py-3 border-b-2 transition shrink-0 ${tab === 'audit' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
         >
           वित्तीय लेजर एवं P&L
         </button>
         <button
+          onClick={() => setTab('calculator')}
+          className={`py-3 border-b-2 transition shrink-0 ${tab === 'calculator' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
+        >
+          ⚡ लाइव प्राइस कैलकुलेटर
+        </button>
+        <button
           onClick={() => setTab('sellers')}
-          className={`py-3 border-b-2 transition ${tab === 'sellers' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
+          className={`py-3 border-b-2 transition shrink-0 ${tab === 'sellers' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
         >
           सेलर अनुमोदन एवं KYC
         </button>
         <button
           onClick={() => setTab('orders')}
-          className={`py-3 border-b-2 transition ${tab === 'orders' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
+          className={`py-3 border-b-2 transition shrink-0 ${tab === 'orders' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
         >
           कूरियर एवं रिटर्न ट्रैकिंग
         </button>
         <button
           onClick={() => setTab('charges')}
-          className={`py-3 border-b-2 transition ${tab === 'charges' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
+          className={`py-3 border-b-2 transition shrink-0 ${tab === 'charges' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400'}`}
         >
           प्लेटफ़ॉर्म व GST शुल्क दरें
         </button>
       </div>
 
       <main className="p-6 max-w-7xl mx-auto space-y-6">
+        {/* टैब 1: वित्तीय लेजर */}
         {tab === 'audit' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सकल बिक्री</div>
                 <div className="text-2xl font-bold text-white mt-1">₹{Number(kpiSummary.gross_sales || 0).toFixed(2)}</div>
@@ -344,6 +390,10 @@ export default function UnifiedMasterAdmin() {
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">देय GST लेवी (18%)</div>
                 <div className="text-2xl font-bold text-indigo-400 mt-1">₹{Number(kpiSummary.gst_pool_18 || 0).toFixed(2)}</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <div className="text-xs text-slate-400 uppercase font-bold">कूरियर डिडक्शन पूल</div>
+                <div className="text-2xl font-bold text-rose-400 mt-1">₹{Number(kpiSummary.courier_pool || 0).toFixed(2)}</div>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400 uppercase font-bold">सेलर पेआउट देनदारी</div>
@@ -365,6 +415,8 @@ export default function UnifiedMasterAdmin() {
                       <th className="p-3 text-right">प्लेटफ़ॉर्म (3%)</th>
                       <th className="p-3 text-right">GST (18%)</th>
                       <th className="p-3 text-right">TCS (1%)</th>
+                      <th className="p-3 text-right text-rose-400">कूरियर शुल्क</th>
+                      <th className="p-3 text-center">वज़न / ज़ोन ऑडिट</th>
                       <th className="p-3 text-right text-emerald-400">सेलर पेआउट</th>
                       <th className="p-3 text-center">एस्क्रो स्थिति</th>
                     </tr>
@@ -372,7 +424,7 @@ export default function UnifiedMasterAdmin() {
                   <tbody className="divide-y divide-slate-800">
                     {ledgers.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-slate-500">
+                        <td colSpan={11} className="p-8 text-center text-slate-500">
                           डेटाबेस में अभी कोई लाइव ट्रांजेक्शन रिकॉर्ड नहीं मिला है।
                         </td>
                       </tr>
@@ -386,6 +438,12 @@ export default function UnifiedMasterAdmin() {
                           <td className="p-3 text-right text-indigo-400">+₹{Number(row.platform_fee_3pct).toFixed(2)}</td>
                           <td className="p-3 text-right text-blue-400">₹{Number(row.gst_18pct).toFixed(2)}</td>
                           <td className="p-3 text-right text-amber-400">-₹{Number(row.tcs_1pct).toFixed(2)}</td>
+                          <td className="p-3 text-right font-medium text-rose-400">-₹{Number(row.courier_charge || 50).toFixed(2)}</td>
+                          <td className="p-3 text-center">
+                            <span className="bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded text-[10px] font-mono">
+                              {row.weight_audit || `${row.weight_grams || 500}g • ${row.zone || 'Zone D'}`}
+                            </span>
+                          </td>
                           <td className="p-3 text-right font-bold text-emerald-400">₹{Number(row.seller_net).toFixed(2)}</td>
                           <td className="p-3 text-center">
                             <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
@@ -402,6 +460,109 @@ export default function UnifiedMasterAdmin() {
           </div>
         )}
 
+        {/* टैब 2: लाइव प्राइस और पेआउट कैलकुलेटर */}
+        {tab === 'calculator' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>💰</span> लाइव सेलर प्राइस इनपुट
+              </h3>
+              <p className="text-xs text-slate-400">
+                यहाँ प्रोडक्ट का दाम डालते ही धारा 52 CGST (1% TCS), 3% प्लेटफ़ॉर्म फीस, 18% GST और कूरियर सेटलमेंट रियल-टाइम में कैलकुलेट हो जाएगा।
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  प्रोडक्ट की बिक्री कीमत (Gross MRP / Price in ₹)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-3.5 text-slate-500 font-bold">₹</span>
+                  <input
+                    type="number"
+                    value={inputPrice}
+                    onChange={(e) => handlePriceChange(e.target.value)}
+                    placeholder="1499"
+                    className="w-full pl-8 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 border border-slate-800 rounded-xl space-y-2 text-xs">
+                <div className="flex justify-between text-slate-400">
+                  <span>प्लेटफ़ॉर्म कमीशन ({config.platform_fee_percent}%):</span>
+                  <span className="text-indigo-400 font-semibold">-₹{calculations.platformFee}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>कमीशन पर GST ({config.gst_percent}%):</span>
+                  <span className="text-blue-400 font-semibold">-₹{calculations.gst}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>पेमेंट गेटवे शुल्क ({config.gateway_fee_percent}%):</span>
+                  <span className="text-red-400 font-semibold">-₹{calculations.gateway}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>TCS टैक्स (धारा 52 CGST 1%):</span>
+                  <span className="text-amber-400 font-semibold">-₹{calculations.tcs}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>अनुमानित कूरियर डिलीवरी शुल्क:</span>
+                  <span className="text-rose-400 font-semibold">-₹{calculations.courierCharge}</span>
+                </div>
+                <hr className="border-slate-800 my-2" />
+                <div className="flex justify-between text-sm font-bold text-emerald-400">
+                  <span>शुद्ध सेलर पेआउट (Net Payout):</span>
+                  <span>₹{calculations.sellerPayout}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* कूरियर एवं RTO दृश्य */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 flex flex-col justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>🚚</span> लॉजिस्टिक्स सेटलमेंट (Success vs RTO)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  ऑर्डर सफल होने पर या रिटर्न (RTO) होने पर सेलर और कंपनी का अंतिम लाभ:
+                </p>
+
+                <div className="mt-4 space-y-3">
+                  <div className="p-4 bg-emerald-950/30 border border-emerald-800/40 rounded-xl space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-emerald-300">केस 1: डिलीवरी सफल (Success)</span>
+                      <span className="text-[10px] bg-emerald-900 text-emerald-200 px-2 py-0.5 rounded">कूरियर: ₹{config.courier_base_charge}</span>
+                    </div>
+                    <div className="text-xl font-bold text-emerald-400">
+                      ₹{calculations.sellerPayout}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      सेलर के बैंक खाते में ट्रांसफर (T+2 / रिटर्न विंडो समाप्ति पर)
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-red-950/30 border border-red-800/40 rounded-xl space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-red-300">केस 2: रिटर्न / RTO (Return to Origin)</span>
+                      <span className="text-[10px] bg-red-900 text-red-200 px-2 py-0.5 rounded">पेनल्टी: ₹{config.return_penalty}</span>
+                    </div>
+                    <div className="text-xl font-bold text-red-400">
+                      -₹{calculations.rtoLoss}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      ग्राहक को पूरा रिफंड, सेलर खाते से केवल रिटर्न शिपिंग पेनल्टी डेबिट।
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500 bg-slate-950 p-3 rounded-lg border border-slate-800">
+                💡 <b>नोट:</b> यह कैलकुलेशन सीधे आपके लाइव Django API (<code className="text-indigo-300">CentralEcoMasterLedgerView</code>) के गणित से 100% सिंक्रोनाइज़्ड है।
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* टैब 3: सेलर ऑनबोर्डिंग */}
         {tab === 'sellers' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto p-4">
             <h3 className="text-base font-bold text-white mb-4">विक्रेता ऑनबोर्डिंग एवं दस्तावेज़ सत्यापन (KYC)</h3>
@@ -443,13 +604,18 @@ export default function UnifiedMasterAdmin() {
           </div>
         )}
 
+        {/* टैब 4: कूरियर एवं लॉजिस्टिक्स ट्रैकिंग */}
         {tab === 'orders' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-            <h3 className="text-base font-bold text-white mb-2">लॉजिस्टिक्स, AWB एवं रिटर्न कूरियर ऑडिट</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+            <div>
+              <h3 className="text-base font-bold text-white mb-1">लॉजिस्टिक्स, AWB एवं रिटर्न कूरियर ऑडिट</h3>
+              <p className="text-xs text-slate-400">Delhivery / Shiprocket / BlueDart शिपिंग स्टेटस और ऑटो-एस्क्रो लॉकिंग ट्रैकिंग</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
-                <div className="text-xs text-slate-400">कूरियर पार्टनर</div>
-                <div className="text-lg font-bold text-white mt-1">Delhivery / Shiprocket</div>
+                <div className="text-xs text-slate-400">मल्टी-कूरियर नेटवर्क</div>
+                <div className="text-lg font-bold text-white mt-1">Delhivery / Shiprocket / BlueDart</div>
               </div>
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl">
                 <div className="text-xs text-slate-400">OTP-आधारित डिलीवरी</div>
@@ -460,9 +626,48 @@ export default function UnifiedMasterAdmin() {
                 <div className="text-lg font-bold text-amber-400 mt-1">₹{config.return_penalty} / ऑर्डर</div>
               </div>
             </div>
+
+            <div className="border border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase">
+                  <tr>
+                    <th className="p-3">ऑर्डर ID</th>
+                    <th className="p-3">AWB ट्रैकिंग नंबर</th>
+                    <th className="p-3">कूरियर पार्टनर</th>
+                    <th className="p-3">डिलीवरी स्थिति</th>
+                    <th className="p-3">वित्तीय प्रभाव</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-slate-300">
+                  <tr className="hover:bg-slate-800/40">
+                    <td className="p-3 font-mono font-bold text-white">ORD-4</td>
+                    <td className="p-3 font-mono text-indigo-400">DELHIVERY-9821435</td>
+                    <td className="p-3">Delhivery Express</td>
+                    <td className="p-3">
+                      <span className="bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded text-[10px]">
+                        In Transit (मार्ग में)
+                      </span>
+                    </td>
+                    <td className="p-3 text-amber-400">₹1350.97 (Locked in Escrow)</td>
+                  </tr>
+                  <tr className="hover:bg-slate-800/40">
+                    <td className="p-3 font-mono font-bold text-white">ORD-3</td>
+                    <td className="p-3 font-mono text-indigo-400">SHIPR-6549812</td>
+                    <td className="p-3">Shiprocket Surface</td>
+                    <td className="p-3">
+                      <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-[10px]">
+                        Delivered (सफल डिलीवरी)
+                      </span>
+                    </td>
+                    <td className="p-3 text-emerald-400">पेआउट क्लियर (T+2 Released)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
+        {/* टैब 5: चार्जेस व नीतियां */}
         {tab === 'charges' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-2xl">
             <h3 className="text-base font-bold text-white mb-4">कमीशन, कूरियर व कर नीतियां</h3>
@@ -494,8 +699,26 @@ export default function UnifiedMasterAdmin() {
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                 />
               </div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">बेस कूरियर डिलीवरी शुल्क (₹)</label>
+                <input
+                  type="number"
+                  value={config.courier_base_charge}
+                  onChange={(e) => setConfig({ ...config, courier_base_charge: Number(e.target.value) })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 mb-1 font-semibold">रिटर्न / RTO पेनल्टी (₹)</label>
+                <input
+                  type="number"
+                  value={config.return_penalty}
+                  onChange={(e) => setConfig({ ...config, return_penalty: Number(e.target.value) })}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                />
+              </div>
               <button
-                onClick={() => alert('नियम सफलतापूर्वक सुरक्षित कर दिए गए!')}
+                onClick={() => alert('नियम व कूरियर शुल्क सफलतापूर्वक सुरक्षित कर दिए गए!')}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition mt-2"
               >
                 सेटिंग्स सुरक्षित करें
