@@ -110,16 +110,28 @@ class CategoryPolicy(models.Model):
         return f"{self.name} (HSN: {self.hsn_code}, GST: {self.gst_rate}%)"
 
 
-# --- 5. Dynamic Shipping Rate Card ---
+# --- 5. Multi-Courier Dynamic Shipping Rate Card (Weight + Zone) ---
 class ShippingRateCard(models.Model):
-    zone = models.CharField(max_length=50, default='Regional')
+    ZONE_CHOICES = [
+        ('Zone A', 'Zone A - Local (Within City)'),
+        ('Zone B', 'Zone B - Regional (Within State)'),
+        ('Zone C', 'Zone C - National Metro'),
+        ('Zone D', 'Zone D - Rest of India'),
+        ('Zone E', 'Zone E - Special (NE, J&K)'),
+    ]
+
+    courier_partner = models.CharField(max_length=50, default='Delhivery')  # Delhivery, BlueDart, Shiprocket
+    zone = models.CharField(max_length=50, choices=ZONE_CHOICES, default='Zone B')
     min_weight_grams = models.IntegerField(default=0)
     max_weight_grams = models.IntegerField(default=500)
-    forward_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('50.00'))
+    forward_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('45.00'))  # बेस चार्ज 500g तक
+    per_additional_500g = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('20.00'))  # हर अतिरिक्त 500g
     rto_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('40.00'))
+    cod_charge = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal('0.00'))
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.zone} ({self.min_weight_grams}g-{self.max_weight_grams}g) - Forward: ₹{self.forward_charge}"
+        return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
 
 
 # --- 6. Transparent Product Model ---
@@ -172,8 +184,9 @@ class Product(models.Model):
         total_platform = plat_fee + plat_tax
 
         rate_card = ShippingRateCard.objects.filter(
-            max_weight_grams__gte=self.weight_grams
-        ).order_by('max_weight_grams').first()
+            max_weight_grams__gte=self.weight_grams,
+            is_active=True
+        ).order_by('forward_charge').first()
 
         fwd_ship = rate_card.forward_charge if rate_card else Decimal('50.00')
         rto_cost = rate_card.rto_charge if rate_card else Decimal('40.00')
@@ -242,6 +255,7 @@ class Order(models.Model):
     total_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     payment_method = models.CharField(max_length=30, choices=PAYMENT_CHOICES, default='COD')
     shipping_address = models.TextField(default='')
+    shipping_pincode = models.CharField(max_length=10, blank=True, null=True)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Confirmed')
 
     courier_partner = models.CharField(max_length=100, default='Delhivery Express')
@@ -267,7 +281,32 @@ class Order(models.Model):
         return f"Order #{self.id} - {self.user.username} ({self.status})"
 
 
-# --- 9. Order Item & Live Transparency Deduction Engine ---
+# --- 9. Multi-Courier Weight & Freight Reconciliation ---
+class OrderShippingReconciliation(models.Model):
+    STATUS_CHOICES = [
+        ('Estimated', 'अनुमानित (Estimated)'),
+        ('In-Transit', 'मार्ग में (In-Transit)'),
+        ('Delivered', 'डिलीवर (Delivered)'),
+        ('Billed_Discrepancy', 'वजन अंतर (Discrepancy)'),
+        ('Settled', 'बिल सेटल (Settled)'),
+    ]
+
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='shipping_recon')
+    courier_partner = models.CharField(max_length=50, default='Delhivery')
+    awb_number = models.CharField(max_length=100, blank=True, null=True)
+    estimated_weight_g = models.IntegerField(default=500)
+    actual_billed_weight_g = models.IntegerField(null=True, blank=True)
+    estimated_charge = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
+    actual_billed_charge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    is_discrepancy = models.BooleanField(default=False)
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='Estimated')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Recon #{self.order.id} - {self.courier_partner} (₹{self.actual_billed_charge or self.estimated_charge})"
+
+
+# --- 10. Order Item & Live Transparency Deduction Engine ---
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -320,7 +359,7 @@ class OrderItem(models.Model):
         return f"{self.quantity} x {self.product.title} (Payout: ₹{self.vendor_payout})"
 
 
-# --- 10. Seller Deduction Cutting Slip (Zero Hidden Cuts) ---
+# --- 11. Seller Deduction Cutting Slip (Zero Hidden Cuts) ---
 class SellerDeductionSlip(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE, related_name='deduction_slips')
@@ -340,7 +379,7 @@ class SellerDeductionSlip(models.Model):
         return f"Slip {self.slip_number} - ₹{self.final_settlement_amount}"
 
 
-# --- 11. Reviews ---
+# --- 12. Reviews ---
 class Review(models.Model):
     product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -353,10 +392,9 @@ class Review(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.product.title} ({self.rating}★)"
-    from django.db import models
-from django.contrib.auth.models import User
-from decimal import Decimal
 
+
+# --- 13. Immutable Master Transaction ---
 class ImmutableMasterTransaction(models.Model):
     TRANSACTION_TYPES = [
         ('ECOMMERCE_ORDER', 'E-Commerce Order'),
@@ -368,10 +406,9 @@ class ImmutableMasterTransaction(models.Model):
     ]
 
     tx_id = models.CharField(max_length=100, unique=True, editable=False)
-    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='immutable_txs')
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='immutable_txs', null=True, blank=True)
     service_type = models.CharField(max_length=50, choices=TRANSACTION_TYPES)
-    
-    # Financial Breakdown
+
     gross_amount = models.DecimalField(max_digits=12, decimal_places=2)
     gateway_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     platform_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -379,13 +416,11 @@ class ImmutableMasterTransaction(models.Model):
     tcs_tax = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     net_payout = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
 
-    # Security & Audit
-    operator_ref = models.CharField(max_length=150, blank=True, null=True) # BBPS / Bank UTR
+    operator_ref = models.CharField(max_length=150, blank=True, null=True)
     status = models.CharField(max_length=30, default='SUCCESS')
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
 
-    # सुरक्षा नियम: यह रिकॉर्ड कभी डिलीट नहीं हो सकता
     def delete(self, *args, **kwargs):
         raise PermissionError("कानूनी नियम: यह वित्तीय ट्रांजेक्शन कभी डिलीट नहीं किया जा सकता।")
 
