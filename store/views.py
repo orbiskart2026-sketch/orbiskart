@@ -915,3 +915,64 @@ class CentralEcoMasterLedgerView(APIView):
             },
             'audit_records': master_records
         }, status=status.HTTP_200_OK)
+    # --- 15. Complete Seller Onboarding & KYC API ---
+class SellerRegisterAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        try:
+            data = request.data
+            store_name = data.get('store_name', '').strip()
+            owner_name = data.get('owner_name', '').strip()
+            contact_number = data.get('contact_number', '').strip()
+            business_email = data.get('business_email', '').strip()
+            store_address = data.get('store_address', '').strip()
+
+            if not store_name or not owner_name or not contact_number:
+                return Response({'error': 'दुकान का नाम, मालिक का नाम और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # यूजर हैंडलिंग
+            user = request.user if request.user.is_authenticated else None
+            if not user:
+                username = business_email.split('@')[0] if business_email else f"vendor_{contact_number[-4:]}"
+                user, _ = User.objects.get_or_create(username=username, defaults={'email': business_email})
+
+            # वेंडर प्रोफ़ाइल बनाना / अपडेट करना
+            profile, created = VendorProfile.objects.get_or_create(
+                user=user,
+                defaults={'store_name': store_name, 'business_email': business_email}
+            )
+
+            profile.store_name = store_name
+            profile.contact_number = contact_number
+            profile.business_email = business_email
+            profile.gstin = data.get('gstin', '').strip()
+            profile.pan_number = data.get('pan_number', '').strip()
+
+            # बैंकिंग जानकारी
+            profile.bank_name = data.get('bank_name', '').strip()
+            profile.bank_account_name = data.get('bank_account_name', '').strip()
+            profile.bank_account_number = data.get('bank_account_number', '').strip()
+            profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip()
+
+            # KYC दस्तावेज़
+            if 'pan_doc' in request.FILES:
+                profile.pan_doc = request.FILES['pan_doc']
+            if 'identity_proof_doc' in request.FILES:
+                profile.identity_proof_doc = request.FILES['identity_proof_doc']
+            if 'bank_cheque_doc' in request.FILES:
+                profile.bank_cheque_doc = request.FILES['bank_cheque_doc']
+
+            profile.is_approved = True  # तुरंत सेलिंग शुरू करने के लिए
+            profile.save()
+
+            return Response({
+                'success': True,
+                'message': 'सेलर प्रोफ़ाइल सफलतापूर्वक पंजीकृत हो गई है!',
+                'vendor_id': str(profile.id),
+                'store_name': profile.store_name
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
