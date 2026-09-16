@@ -19,6 +19,7 @@ from .views import (
     CentralEcoMasterLedgerView,
     SellerRegisterAPIView,        # 100% सुरक्षित KYC ऑनबोर्डिंग
     SellerProfileUpdateAPIView,   # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
+    VerifyBankAccountAPIView,     # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
 )
 
 urlpatterns = [
@@ -42,12 +43,13 @@ urlpatterns = [
     path('orders/<int:order_id>/verify-otp/', VerifyOrderOTPView.as_view(), name='verify-otp'),
     path('orders/<int:order_id>/invoice/', DownloadInvoicePDFView.as_view(), name='download-invoice'),
 
-    # 5. Seller Hub, KYC Transparency & Self-Service Settings (100% Privacy)
+    # 5. Seller Hub, KYC Transparency & Bank Verification
     path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='seller-dashboard'),
     path('seller/register/', SellerRegisterAPIView.as_view(), name='seller-register'),
     path('api/seller/register/', SellerRegisterAPIView.as_view(), name='api-seller-register'),
     path('seller/profile/update/', SellerProfileUpdateAPIView.as_view(), name='seller-profile-update'),
     path('api/seller/profile/update/', SellerProfileUpdateAPIView.as_view(), name='api-seller-profile-update'),
+    path('api/seller/verify-bank/', VerifyBankAccountAPIView.as_view(), name='verify-bank-account'),
 
     # 6. Razorpay Live Payment
     path('payment/create-order/', CreateRazorpayOrderView.as_view(), name='razorpay-create-order'),
