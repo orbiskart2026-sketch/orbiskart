@@ -21,8 +21,12 @@ export default function SellerRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pincodeLoading, setPincodeLoading] = useState(false);
+  const [ifscLoading, setIfscLoading] = useState(false);
 
-  // लोकल सर्कल / पोस्ट ऑफिस की सूची
+  // बैंक खाताधारक नाम फ़ेच करने के स्टेट्स
+  const [bankVerifying, setBankVerifying] = useState(false);
+  const [accountVerified, setAccountVerified] = useState(false);
+
   const [localCircles, setLocalCircles] = useState<string[]>([]);
 
   const [form, setForm] = useState({
@@ -41,8 +45,11 @@ export default function SellerRegisterPage() {
     id_proof_number: '',
     pan_number: '',
     bank_name: '',
+    bank_branch: '',
+    bank_address: '',
     bank_account_name: '',
     bank_account_number: '',
+    confirm_account_number: '',
     bank_ifsc_code: '',
   });
 
@@ -54,7 +61,7 @@ export default function SellerRegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
 
-  // पिनकोड डालते ही ज़िला, राज्य और सभी लोकल सर्कल/पोस्ट ऑफिस फ़ेच करना
+  // 1. पिनकोड डालते ही लोकेशन व लोकल सर्कल फ़ेच करना
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.trim();
     setForm((prev) => ({ ...prev, pincode: code, local_circle: '' }));
@@ -68,8 +75,6 @@ export default function SellerRegisterPage() {
         if (data && data[0]?.Status === 'Success' && data[0].PostOffice?.length > 0) {
           const poList = data[0].PostOffice;
           const firstPO = poList[0];
-          
-          // सभी लोकल पोस्ट ऑफिस / सर्कल के नाम निकालना
           const circleNames = Array.from(new Set(poList.map((p: any) => p.Name))) as string[];
           setLocalCircles(circleNames);
 
@@ -85,35 +90,91 @@ export default function SellerRegisterPage() {
       } finally {
         setPincodeLoading(false);
       }
-    } else if (form.country !== 'IN' && code.length >= 3) {
-      setPincodeLoading(true);
+    }
+  };
+
+  // 2. IFSC कोड डालते ही बैंक का नाम, ब्रांच और एड्रेस ऑटो-फ़ेच करना
+  const handleIfscChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const ifsc = e.target.value.trim().toUpperCase();
+    setForm((prev) => ({ ...prev, bank_ifsc_code: ifsc }));
+
+    if (ifsc.length === 11) {
+      setIfscLoading(true);
       try {
-        const res = await fetch(`https://api.zippopotam.us/${form.country.toLowerCase()}/${code}`);
+        const res = await fetch(`https://ifsc.razorpay.com/${ifsc}`);
         if (res.ok) {
-          const data = await res.json();
-          if (data.places && data.places.length > 0) {
-            const place = data.places[0];
-            setForm((prev) => ({
-              ...prev,
-              city_district: place['place name'],
-              state: place['state'],
-              local_circle: place['place name'],
-            }));
-          }
+          const bankData = await res.json();
+          setForm((prev) => ({
+            ...prev,
+            bank_name: bankData.BANK || '',
+            bank_branch: bankData.BRANCH || '',
+            bank_address: bankData.ADDRESS || `${bankData.BRANCH}, ${bankData.CITY}, ${bankData.STATE}`,
+          }));
+        } else {
+          alert('अमान्य IFSC कोड! कृपया सही 11-अंकों का IFSC कोड दर्ज करें।');
         }
       } catch (err) {
-        console.error(err);
+        console.error('IFSC fetch error:', err);
       } finally {
-        setPincodeLoading(false);
+        setIfscLoading(false);
       }
     }
   };
 
+  // 3. बैंक खाताधारक का नाम ऑटो-फ़ेच करने का फ़ंक्शन
+  const verifyAndFetchAccountHolder = async () => {
+    if (!form.bank_account_number || !form.confirm_account_number) {
+      alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
+      return;
+    }
+    if (form.bank_account_number !== form.confirm_account_number) {
+      alert('⚠️ दोनों खाता संख्या मेल नहीं खा रही हैं!');
+      return;
+    }
+    if (form.bank_ifsc_code.length !== 11) {
+      alert('कृपया सही 11-अंकों का IFSC कोड दर्ज करें।');
+      return;
+    }
+
+    setBankVerifying(true);
+    try {
+      const res = await fetch('https://orbiskart.onrender.com/api/seller/verify-bank/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_number: form.bank_account_number,
+          ifsc: form.bank_ifsc_code,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setForm((prev) => ({
+          ...prev,
+          bank_account_name: data.registered_name,
+        }));
+        setAccountVerified(true);
+        alert(`✔ बैंक खाता सत्यापित! बैंक रिकॉर्ड में दर्ज नाम: ${data.registered_name}`);
+      } else {
+        alert(`सत्यापन विफल: ${data.error || 'बैंक विवरण गलत है'}`);
+      }
+    } catch {
+      alert('बैंक सर्वर से संपर्क नहीं हो सका। कृपया पुनः प्रयास करें।');
+    } finally {
+      setBankVerifying(false);
+    }
+  };
+
+  // 4. फॉर्म सबमिट हैंडलर
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!acceptedTerms || !declaredAccurate) {
       alert('कृपया OrbisKart की पारदर्शिता नीति व नियम-शर्तों को स्वीकार करें और घोषणा पर टिक करें।');
+      return;
+    }
+
+    if (form.bank_account_number !== form.confirm_account_number) {
+      alert('⚠️ दोनों बैंक खाता संख्या (Account Numbers) आपस में मेल नहीं खा रहे हैं! कृपया दोबारा जाँचें।');
       return;
     }
 
@@ -125,7 +186,6 @@ export default function SellerRegisterPage() {
     setLoading(true);
 
     const data = new FormData();
-    // पूरे पते में लोकल सर्कल को जोड़ना
     const fullStreetAddress = form.local_circle 
       ? `${form.street_address}, Circle/PO: ${form.local_circle}`
       : form.street_address;
@@ -133,7 +193,7 @@ export default function SellerRegisterPage() {
     Object.entries(form).forEach(([key, value]) => {
       if (key === 'street_address') {
         data.append(key, fullStreetAddress);
-      } else {
+      } else if (key !== 'confirm_account_number') {
         data.append(key, value);
       }
     });
@@ -172,7 +232,7 @@ export default function SellerRegisterPage() {
               OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, लोकल सर्कल/डाकघर ऑटो-फ़ेच, 100% पारदर्शी लेज़र और ₹1 बैंक सत्यापन।
+              Zero Hidden Charges, IFSC ऑटो-बैंक फ़ेच, डबल अकाउंट सत्यापन और ₹1 बैंक ट्रायल।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -185,7 +245,7 @@ export default function SellerRegisterPage() {
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (Global Location & Circle Engine)
+              दुकान व विक्रेता विवरण (Global Location Engine)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -251,7 +311,7 @@ export default function SellerRegisterPage() {
 
               <div>
                 <label className="block text-slate-300 mb-1">
-                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">⚡ लोकल सर्कल खोजा जा रहा है...</span>}
+                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">⚡ ऑटो-फ़ेच हो रहा है...</span>}
                 </label>
                 <input
                   type="text"
@@ -263,11 +323,10 @@ export default function SellerRegisterPage() {
                 />
               </div>
 
-              {/* स्थानीय डाकघर / सर्कल चयन ड्रॉपडाउन */}
               {localCircles.length > 0 && (
                 <div className="md:col-span-2 bg-indigo-950/30 border border-indigo-500/40 p-3 rounded-2xl">
                   <label className="block text-indigo-300 font-bold mb-1">
-                    📍 अपना स्थानीय डाकघर / सर्कल चुनें (Select Local Area / Post Office Circle) *
+                    📍 अपना स्थानीय डाकघर / सर्कल चुनें *
                   </label>
                   <select
                     value={form.local_circle}
@@ -407,58 +466,109 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग एवं ₹1 Penny Drop ट्रायल */}
+          {/* सेक्शन 3: बैंकिंग, IFSC ऑटो-फ़ेच एवं डबल अकाउंट वेरिफिकेशन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
-              बैंकिंग एवं सेटलमेंट खाता (Zero Hidden Deduction Bank Setup)
+              बैंकिंग एवं सेटलमेंट खाता (Zero Hidden Deduction & Instant Bank Lookup)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-slate-300 mb-1">बैंक का नाम *</label>
+                <label className="block text-slate-300 mb-1">
+                  बैंक IFSC कोड * {ifscLoading && <span className="text-indigo-400 font-normal">⚡ बैंक विवरण खोजा जा रहा है...</span>}
+                </label>
                 <input
                   type="text"
                   required
+                  maxLength={11}
+                  value={form.bank_ifsc_code}
+                  onChange={handleIfscChange}
+                  placeholder="उदा. SBIN0001234"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wider uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1">बैंक का नाम (स्वतः फ़ेच) *</label>
+                <input
+                  type="text"
+                  readOnly
                   value={form.bank_name}
-                  onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
-                  placeholder="उदा. State Bank of India"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                  placeholder="IFSC डालते ही बैंक का नाम आ जाएगा"
+                  className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-slate-300 font-semibold cursor-not-allowed"
                 />
               </div>
+
+              {form.bank_address && (
+                <div className="md:col-span-2 bg-emerald-950/30 border border-emerald-500/40 p-3 rounded-2xl">
+                  <p className="text-[11px] text-emerald-400 font-semibold">
+                    🏦 <b>बैंक शाखा व पता:</b> {form.bank_branch ? `${form.bank_branch} - ` : ''}{form.bank_address}
+                  </p>
+                </div>
+              )}
+
               <div>
-                <label className="block text-slate-300 mb-1">खाते में दर्ज नाम (Beneficiary) *</label>
-                <input
-                  type="text"
-                  required
-                  value={form.bank_account_name}
-                  onChange={(e) => setForm({ ...form, bank_account_name: e.target.value })}
-                  placeholder="उदा. Naresh Prasad Soni"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-300 mb-1">बैंक खाता संख्या *</label>
+                <label className="block text-slate-300 mb-1">बैंक खाता संख्या (Account Number) *</label>
                 <input
                   type="password"
                   required
                   value={form.bank_account_number}
                   onChange={(e) => setForm({ ...form, bank_account_number: e.target.value })}
                   placeholder="अकाउंट नंबर दर्ज करें"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono"
                 />
               </div>
+
               <div>
-                <label className="block text-slate-300 mb-1">बैंक IFSC कोड *</label>
+                <label className="block text-slate-300 mb-1">
+                  बैंक खाता संख्या दोबारा दर्ज करें (Confirm Account Number) *
+                </label>
                 <input
                   type="text"
                   required
-                  maxLength={11}
-                  value={form.bank_ifsc_code}
-                  onChange={(e) => setForm({ ...form, bank_ifsc_code: e.target.value.toUpperCase() })}
-                  placeholder="SBIN0001234"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white uppercase"
+                  value={form.confirm_account_number}
+                  onChange={(e) => setForm({ ...form, confirm_account_number: e.target.value })}
+                  placeholder="अकाउंट नंबर दोबारा दर्ज करें"
+                  className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-white font-mono ${
+                    form.confirm_account_number && form.confirm_account_number !== form.bank_account_number
+                      ? 'border-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700'
+                  }`}
                 />
+                {form.confirm_account_number && form.confirm_account_number !== form.bank_account_number && (
+                  <span className="text-[10px] text-red-400 mt-1 block">⚠️ दोनों खाता संख्या मेल नहीं खा रही हैं।</span>
+                )}
+                {form.confirm_account_number && form.confirm_account_number === form.bank_account_number && (
+                  <span className="text-[10px] text-emerald-400 mt-1 block">✔ खाता संख्या सत्यापित!</span>
+                )}
               </div>
+
+              {/* खाताधारक नाम और ऑटो-फ़ेच बटन */}
+              <div className="md:col-span-2 flex flex-col sm:flex-row gap-3 items-end">
+                <div className="flex-1 w-full">
+                  <label className="block text-slate-300 mb-1">
+                    खाते में दर्ज नाम (Beneficiary Name) * {accountVerified && <span className="text-emerald-400 font-bold">✔ बैंक रिकॉर्ड से सत्यापित</span>}
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    required
+                    value={form.bank_account_name}
+                    placeholder="नीचे 'बैंक नाम ऑटो-फ़ेच करें' बटन दबाएँ"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-emerald-400 font-bold tracking-wide cursor-not-allowed"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={verifyAndFetchAccountHolder}
+                  disabled={bankVerifying}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition shadow cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {bankVerifying ? 'सत्यापित हो रहा है...' : '🔍 बैंक नाम ऑटो-फ़ेच करें'}
+                </button>
+              </div>
+
               <div className="md:col-span-2">
                 <label className="block text-slate-400 mb-1">कैंसिल्ड चेक / पासबुक प्रति (Bank Proof) *</label>
                 <input
