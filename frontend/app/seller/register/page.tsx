@@ -13,7 +13,9 @@ export default function SellerRegisterPage() {
     owner_name: '',
     contact_number: '',
     business_email: '',
-    store_address: '',
+    street_address: '',
+    city_district: '',
+    state: 'Jharkhand',
     pincode: '',
     gstin: '',
     msme_number: '',
@@ -27,6 +29,7 @@ export default function SellerRegisterPage() {
 
   const [panDoc, setPanDoc] = useState<File | null>(null);
   const [idDoc, setIdDoc] = useState<File | null>(null);
+  const [businessDoc, setBusinessDoc] = useState<File | null>(null);
   const [chequeDoc, setChequeDoc] = useState<File | null>(null);
 
   // टर्म्स और डिक्लेरेशन स्टेट
@@ -41,8 +44,8 @@ export default function SellerRegisterPage() {
       return;
     }
 
-    if (!form.store_name || !form.owner_name || !form.contact_number || !form.bank_account_number || !form.bank_ifsc_code) {
-      alert('कृपया सभी अनिवार्य (*) फ़ील्ड भरें।');
+    if (!form.store_name || !form.owner_name || !form.contact_number || !form.street_address || !form.city_district || !form.pincode || !form.bank_account_number || !form.bank_ifsc_code) {
+      alert('कृपया दुकान का नाम, मालिक का नाम, मोबाइल नंबर, पूरा पता और बैंक खाता विवरण अनिवार्य रूप से भरें।');
       return;
     }
 
@@ -55,6 +58,7 @@ export default function SellerRegisterPage() {
 
     if (panDoc) data.append('pan_doc', panDoc);
     if (idDoc) data.append('identity_proof_doc', idDoc);
+    if (businessDoc) data.append('business_proof_doc', businessDoc);
     if (chequeDoc) data.append('bank_cheque_doc', chequeDoc);
 
     try {
@@ -65,7 +69,7 @@ export default function SellerRegisterPage() {
 
       const resData = await res.json();
       if (res.ok && (resData.success || resData.id || resData.vendor_id)) {
-        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। अब आप सीधे उत्पाद अपलोड और मैनेज कर सकते हैं।');
+        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। OrbisKart एडमिन द्वारा ₹1 बैंक ट्रायल सत्यापन पूरा होते ही आपकी दुकान लाइव हो जाएगी।');
         router.push('/seller');
       } else {
         alert(`पंजीकरण विफल: ${resData.error || JSON.stringify(resData)}`);
@@ -86,7 +90,7 @@ export default function SellerRegisterPage() {
               OrbisKart Seller Onboarding (KYC, Banking & Transparency)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, 100% पारदर्शी लेज़र और डायरेक्ट बैंक सेटलमेंट।
+              Zero Hidden Charges, 100% पारदर्शी लेज़र, ₹1 ट्रायल बैंक सत्यापन और डायरेक्ट सेटलमेंट।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -95,7 +99,7 @@ export default function SellerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-          {/* सेक्शन 1: दुकान व व्यक्तिगत विवरण */}
+          {/* सेक्शन 1: दुकान व व्यक्तिगत विवरण (अलग-अलग पता कॉलम) */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
@@ -147,25 +151,65 @@ export default function SellerRegisterPage() {
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
+
+              {/* अलग-अलग विस्तृत पता */}
               <div className="md:col-span-2">
-                <label className="block text-slate-300 mb-1">दुकान / वेयरहाउस का पूरा पता *</label>
-                <textarea
-                  rows={2}
+                <label className="block text-slate-300 mb-1">गली / मोहल्ला / वेयरहाउस पता *</label>
+                <input
+                  type="text"
                   required
-                  value={form.store_address}
-                  onChange={(e) => setForm({ ...form, store_address: e.target.value })}
-                  placeholder="दुकान संख्या, बाज़ार, गली, ज़िला, राज्य..."
+                  value={form.street_address}
+                  onChange={(e) => setForm({ ...form, street_address: e.target.value })}
+                  placeholder="उदा. Basaria, Post- Deokuli, PS- Daru"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1">शहर / ज़िला (City / District) *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.city_district}
+                  onChange={(e) => setForm({ ...form, city_district: e.target.value })}
+                  placeholder="उदा. Hazaribagh"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-slate-300 mb-1">राज्य (State) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.state}
+                    onChange={(e) => setForm({ ...form, state: e.target.value })}
+                    placeholder="Jharkhand"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1">पिनकोड *</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={form.pincode}
+                    onChange={(e) => setForm({ ...form, pincode: e.target.value })}
+                    placeholder="825402"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन (KYC) */}
+          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन (GST / MSME / बिज़नेस प्रूफ) */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
-              टैक्स, पहचान व सरकारी पंजीकरण (GST / MSME / ID Proof)
+              टैक्स, पहचान व सरकारी पंजीकरण (GST / MSME / बिज़नेस प्रूफ)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -212,28 +256,43 @@ export default function SellerRegisterPage() {
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
+
+              {/* डॉक्युमेंट अपलोड्स */}
               <div>
-                <label className="block text-slate-400 mb-1">PAN कार्ड दस्तावेज़ (फ़ोटो/PDF)</label>
+                <label className="block text-slate-400 mb-1">PAN कार्ड दस्तावेज़ (फ़ोटो/PDF) *</label>
                 <input
                   type="file"
                   accept="image/*,.pdf"
+                  required
                   onChange={(e) => e.target.files && setPanDoc(e.target.files[0])}
-                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white"
+                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
                 />
               </div>
               <div>
-                <label className="block text-slate-400 mb-1">पहचान पत्र दस्तावेज़ (Govt ID Copy)</label>
+                <label className="block text-slate-400 mb-1">पहचान पत्र दस्तावेज़ (Govt ID Copy) *</label>
                 <input
                   type="file"
                   accept="image/*,.pdf"
+                  required
                   onChange={(e) => e.target.files && setIdDoc(e.target.files[0])}
-                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white"
+                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-slate-400 mb-1">
+                  दुकान / बिज़नेस प्रमाणपत्र (GST Certificate / Udyam MSME / Trade License / Gumasta Copy)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => e.target.files && setBusinessDoc(e.target.files[0])}
+                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
                 />
               </div>
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग व ऑटोमैटिक पेआउट सेटलमेंट */}
+          {/* सेक्शन 3: बैंकिंग व ₹1 पेनी-ड्रॉप बैंक सत्यापन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
@@ -286,14 +345,20 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1">कैंसिल्ड चेक / पासबुक की प्रति (Bank Proof)</label>
+                <label className="block text-slate-400 mb-1">कैंसिल्ड चेक / पासबुक की प्रति (Bank Proof) *</label>
                 <input
                   type="file"
                   accept="image/*,.pdf"
+                  required
                   onChange={(e) => e.target.files && setChequeDoc(e.target.files[0])}
-                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white"
+                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
                 />
               </div>
+            </div>
+
+            {/* ₹1 Penny Drop बैंक सत्यापन नोटिस */}
+            <div className="mt-4 p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl text-[11px] text-blue-300 leading-relaxed">
+              ℹ️ <b>पारदर्शी बैंक सत्यापन नीति:</b> फ़ॉर्म सबमिट होने के बाद OrbisKart एडमिन आपके बैंक खाते में ₹1 का ट्रायल क्रेडिट (Penny Drop) सत्यापन भेजेगा। बैंक खाता सही पाए जाने पर आपकी दुकान और उत्पाद तुरंत लाइव हो जाएँगे।
             </div>
           </div>
 
@@ -304,16 +369,15 @@ export default function SellerRegisterPage() {
               OrbisKart एवं विक्रेता अनुबंध व 100% डेटा प्राइवेसी समझौता
             </h3>
 
-            {/* स्क्रॉल करने योग्य टर्म्स बॉक्स */}
             <div className="h-44 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2.5">
               <p className="font-bold text-white">1. जीरो हिडन कटौती गारंटी (Zero Hidden Cuts):</p>
               <p>OrbisKart पर विक्रेता के प्रत्येक ऑर्डर पर केवल पूर्व-निर्धारित प्लेटफ़ॉर्म शुल्क एवं वास्तविक कूरियर दर ही ली जाएगी। किसी भी प्रकार का गुप्त रिटर्न पेनल्टी या अघोषित विज्ञापन शुल्क नहीं काटा जाएगा।</p>
 
               <p className="font-bold text-white">2. 100% डेटा प्राइवेसी व सुरक्षा नीति:</p>
-              <p>विक्रेता का आधार, पैन, बैंक खाता व संपर्क जानकारी एन्क्रिप्टेड सुरक्षा में रहेगी। इसे किसी भी तीसरे पक्ष या मार्केटिंग एजेंसी के साथ कभी साझा नहीं किया जाएगा।</p>
+              <p>विक्रेता का पहचान पत्र, पैन, बैंक खाता व संपर्क जानकारी एन्क्रिप्टेड सुरक्षा में रहेगी। इसे किसी भी तीसरे पक्ष या मार्केटिंग एजेंसी के साथ कभी साझा नहीं किया जाएगा।</p>
 
               <p className="font-bold text-white">3. स्वतंत्र प्रोफ़ाइल व बैंक बदलाव अधिकार (Self-Service Profile Edit):</p>
-              <p>विक्रेता को अपने सेलर डैशबोर्ड से भविष्य में कभी भी अपनी दुकान का नाम, व्यापारिक पता या बैंक खाता विवरण OTP सुरक्षा सत्यापन के साथ बदलने का पूर्ण अधिकार रहेगा।</p>
+              <p>विक्रेता को अपने सेलर डैशबोर्ड से भविष्य में कभी भी अपनी दुकान का नाम, व्यापारिक पता या बैंक खाता विवरण सुरक्षा सत्यापन के साथ बदलने का पूर्ण अधिकार रहेगा।</p>
 
               <p className="font-bold text-white">4. समयबद्ध स्वचालित बैंक भुगतान (T+2 / 7-Day Settlement):</p>
               <p>ऑर्डर डिलीवरी सत्यापित होने के बाद शुद्ध विक्रय राशि सीधे विक्रेता के पंजीकृत बैंक खाते में NEFT/RTGS के माध्यम से ट्रांसफ़र होगी, जिसकी कटौती स्लिप (Deduction Slip) पोर्टल पर उपलब्ध रहेगी।</p>
@@ -322,7 +386,6 @@ export default function SellerRegisterPage() {
               <p>विक्रेता यह सुनिश्चित करेगा कि उसके द्वारा लिस्ट किए गए उत्पाद 100% असली, वैध और सरकारी मानकों के अनुरूप हैं।</p>
             </div>
 
-            {/* अनिवार्य चेकबॉक्स */}
             <div className="mt-4 space-y-3">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input
@@ -346,7 +409,7 @@ export default function SellerRegisterPage() {
                   className="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-slate-300 text-xs">
-                  <b>सत्यनिष्ठा घोषणा (Declaration):</b> मैं प्रमाणित करता/करती हूँ कि मेरे द्वारा दी गई सभी जानकारी (नाम, दुकान का पता, पैन व बैंक खाता) 100% सत्य व सटीक है।
+                  <b>सत्यनिष्ठा घोषणा (Declaration):</b> मैं प्रमाणित करता/करती हूँ कि मेरे द्वारा दी गई सभी जानकारी (नाम, दुकान का पता, पैन, बिज़नेस डॉक्युमेंट व बैंक खाता) 100% सत्य व सटीक है।
                 </span>
               </label>
             </div>

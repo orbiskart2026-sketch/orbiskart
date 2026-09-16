@@ -23,7 +23,7 @@ class UserProfile(models.Model):
         return f"{self.user.username} - {self.get_role_display()}"
 
 
-# --- 2. Advanced Vendor / Seller Profile ---
+# --- 2. Advanced Vendor / Seller Profile (KYC, Business Docs & Penny Drop Setup) ---
 class VendorProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='vendor_profile')
@@ -32,13 +32,24 @@ class VendorProfile(models.Model):
     business_email = models.EmailField()
     contact_number = models.CharField(max_length=15, default='')
 
+    # विस्तृत दुकान / वेयरहाउस पता
+    street_address = models.TextField(default='', blank=True)
+    city_district = models.CharField(max_length=100, default='')
+    state = models.CharField(max_length=100, default='Jharkhand')
+    pincode = models.CharField(max_length=10, default='')
+
     # टैक्स व पहचान अनुपालन (KYC)
     gstin = models.CharField(max_length=15, blank=True, null=True)
+    msme_number = models.CharField(max_length=50, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
+    id_proof_number = models.CharField(max_length=50, blank=True, null=True)
+
+    # सुरक्षित डाक्यूमेंट्स (PDF / फ़ोटो)
     pan_doc = models.FileField(upload_to='seller_kyc/pan/', null=True, blank=True)
     identity_proof_doc = models.FileField(upload_to='seller_kyc/identity/', null=True, blank=True)
+    business_proof_doc = models.FileField(upload_to='seller_kyc/business/', null=True, blank=True)
 
-    # बैंकिंग, बैलेंस व सेटलमेंट
+    # बैंकिंग, बैलेंस व ₹1 पेनी-ड्रॉप सत्यापन
     bank_name = models.CharField(max_length=100, default='')
     bank_account_name = models.CharField(max_length=150, default='')
     bank_account_number = models.CharField(max_length=30, default='')
@@ -46,17 +57,21 @@ class VendorProfile(models.Model):
     bank_cheque_doc = models.FileField(upload_to='seller_kyc/bank/', null=True, blank=True)
     bank_account_verified = models.BooleanField(default=False)
 
+    # ₹1 Penny Drop ट्रायल सत्यापन
+    penny_drop_verified = models.BooleanField(default=False)
+    penny_drop_utr = models.CharField(max_length=100, blank=True, null=True)
+    is_approved = models.BooleanField(default=False)  # एडमिन अप्रूवल और ₹1 टेस्ट के बाद ही True होगा
+
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
-
-    is_approved = models.BooleanField(default=True)
     quality_score = models.DecimalField(max_digits=3, decimal_places=1, default=Decimal('5.0'))
     is_orbiskart_mall = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
-        return f"{self.store_name} ({'सत्यापित' if self.is_approved else 'सत्यापन लंबित'})"
+        status_text = "सत्यापित एवं सक्रिय" if self.is_approved else "₹1 ट्रायल / सत्यापन लंबित"
+        return f"{self.store_name} ({status_text})"
 
 
 # --- 3. Govt Official HSN / SAC Master Database ---
@@ -125,7 +140,7 @@ class ShippingRateCard(models.Model):
         return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
 
 
-# --- 6. Transparent Product Model (With Video, Multi-Image & Instant Live) ---
+# --- 6. Transparent Product Model (Protected against Unapproved Sellers) ---
 class Product(models.Model):
     vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
@@ -147,11 +162,14 @@ class Product(models.Model):
     weight_grams = models.IntegerField(default=300)
     stock = models.IntegerField(default=10)
 
-    # अपलोड होते ही तुरंत लाइव
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def save(self, *args, **kwargs):
+        # सेलर जब तक ₹1 ट्रायल मनी से अप्रूव नहीं होगा, प्रोडक्ट लाइव नहीं हो सकता
+        if self.vendor and not self.vendor.is_approved:
+            self.is_active = False
+
         if self.hsn_record:
             self.hsn_code = self.hsn_record.hsn_code
             self.gst_rate = self.hsn_record.gst_rate
@@ -160,7 +178,6 @@ class Product(models.Model):
             self.gst_rate = self.category_policy.gst_rate
         super().save(*args, **kwargs)
 
-    # गायब हुआ फ़ंक्शन वापस जोड़ा गया
     def calculate_transparency_ledger(self):
         gross = Decimal(str(self.price or 0))
         rate = getattr(self, 'gst_rate', Decimal('18.00')) or Decimal('18.00')

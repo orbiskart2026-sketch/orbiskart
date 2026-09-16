@@ -95,7 +95,7 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Instant Upload API ---
+# --- 2. Product List & Instant Upload API (₹1 Verification Protected) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -154,6 +154,15 @@ class ProductListView(APIView):
             if request.user.is_authenticated:
                 vendor_profile = getattr(request.user, 'vendor_profile', None)
 
+            # सेलर सत्यापन सुरक्षा: केवल ₹1 पेनी-ड्रॉप अप्रूव्ड सेलर ही लाइव अपलोड कर सकते हैं
+            is_live_allowed = True
+            if vendor_profile:
+                if not vendor_profile.is_approved:
+                    return Response({
+                        'error': 'आपकी सेलर प्रोफ़ाइल सत्यापन प्रक्रिया में है। एडमिन द्वारा ₹1 ट्रायल क्रेडिट और बैंक अप्रूवल के बाद ही आप उत्पाद पब्लिश कर सकेंगे।'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                is_live_allowed = vendor_profile.is_approved
+
             default_policy = CategoryPolicy.objects.first()
 
             with transaction.atomic():
@@ -168,7 +177,7 @@ class ProductListView(APIView):
                     weight_grams=int(weight_grams or 500),
                     image=primary_image,
                     video=video,
-                    is_active=True
+                    is_active=is_live_allowed
                 )
 
                 gallery_files = request.FILES.getlist('gallery_images')
@@ -179,7 +188,7 @@ class ProductListView(APIView):
 
             return Response({
                 'success': True,
-                'message': 'उत्पाद सफलतापूर्वक तुरंत लाइव पब्लिश हो चुका है!',
+                'message': 'उत्पाद सफलतापूर्वक लाइव पब्लिश हो चुका है!',
                 'product_id': product.id,
                 'title': product.title,
                 'price': str(product.price),
@@ -654,6 +663,7 @@ class SellerDashboardSummaryView(APIView):
             return Response({
                 "store_name": profile.store_name,
                 "is_approved": profile.is_approved,
+                "penny_drop_verified": profile.penny_drop_verified,
                 "is_orbiskart_mall": profile.is_orbiskart_mall,
                 "wallet_balance": str(profile.wallet_balance),
                 "quality_score": str(profile.quality_score),
@@ -914,7 +924,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Complete Seller Onboarding & KYC API (100% Privacy & Zero Hidden Cuts) ---
+# --- 15. Complete Seller Onboarding & KYC API (Separate Address & Penny Drop Verification) ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -926,7 +936,6 @@ class SellerRegisterAPIView(APIView):
             owner_name = data.get('owner_name', '').strip()
             contact_number = data.get('contact_number', '').strip()
             business_email = data.get('business_email', '').strip()
-            store_address = data.get('store_address', '').strip()
 
             if not store_name or not owner_name or not contact_number:
                 return Response({'error': 'दुकान का नाम, मालिक का नाम और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
@@ -944,32 +953,47 @@ class SellerRegisterAPIView(APIView):
             profile.store_name = store_name
             profile.contact_number = contact_number
             profile.business_email = business_email
+
+            # अलग-अलग पता कॉलम
+            profile.street_address = data.get('street_address', '').strip() or data.get('store_address', '').strip()
+            profile.city_district = data.get('city_district', '').strip()
+            profile.state = data.get('state', 'Jharkhand').strip()
+            profile.pincode = data.get('pincode', '').strip()
+
+            # टैक्स, पहचान व सरकारी पंजीकरण
             profile.gstin = data.get('gstin', '').strip()
+            profile.msme_number = data.get('msme_number', '').strip()
             profile.pan_number = data.get('pan_number', '').strip()
+            profile.id_proof_number = data.get('id_proof_number', '').strip()
 
-            if hasattr(profile, 'store_address'):
-                profile.store_address = store_address
-
+            # बैंकिंग जानकारी
             profile.bank_name = data.get('bank_name', '').strip()
             profile.bank_account_name = data.get('bank_account_name', '').strip()
             profile.bank_account_number = data.get('bank_account_number', '').strip()
             profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip()
 
+            # सुरक्षित डॉक्युमेंट्स (KYC & Business Proof)
             if 'pan_doc' in request.FILES:
                 profile.pan_doc = request.FILES['pan_doc']
             if 'identity_proof_doc' in request.FILES:
                 profile.identity_proof_doc = request.FILES['identity_proof_doc']
+            if 'business_proof_doc' in request.FILES:
+                profile.business_proof_doc = request.FILES['business_proof_doc']
             if 'bank_cheque_doc' in request.FILES:
                 profile.bank_cheque_doc = request.FILES['bank_cheque_doc']
 
-            profile.is_approved = True
+            # एडमिन द्वारा ₹1 Penny Drop वेरिफिकेशन के बाद ही सेलर अप्रूव होगा
+            profile.is_approved = False
+            profile.penny_drop_verified = False
+            profile.bank_account_verified = False
             profile.save()
 
             return Response({
                 'success': True,
-                'message': 'सेलर प्रोफ़ाइल 100% प्राइवेसी सुरक्षा के साथ पंजीकृत हो चुकी है!',
+                'message': 'सेलर प्रोफ़ाइल पंजीकृत हो चुकी है! OrbisKart एडमिन द्वारा आपके बैंक खाते में ₹1 का ट्रायल क्रेडिट (Penny Drop) सत्यापन पूरा होते ही आपकी दुकान लाइव हो जाएगी।',
                 'vendor_id': str(profile.id),
-                'store_name': profile.store_name
+                'store_name': profile.store_name,
+                'status': 'Under ₹1 Bank Trial & Admin Verification'
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -996,27 +1020,39 @@ class SellerProfileUpdateAPIView(APIView):
             if not profile:
                 return Response({'error': 'सेलर प्रोफ़ाइल नहीं मिली।'}, status=status.HTTP_404_NOT_FOUND)
 
+            # दुकान का नाम
             if 'store_name' in data and data['store_name'].strip():
                 profile.store_name = data['store_name'].strip()
 
-            if 'store_address' in data and hasattr(profile, 'store_address'):
-                profile.store_address = data['store_address'].strip()
+            # पता अपडेट
+            if 'street_address' in data and data['street_address'].strip():
+                profile.street_address = data['street_address'].strip()
+            if 'city_district' in data and data['city_district'].strip():
+                profile.city_district = data['city_district'].strip()
+            if 'state' in data and data['state'].strip():
+                profile.state = data['state'].strip()
+            if 'pincode' in data and data['pincode'].strip():
+                profile.pincode = data['pincode'].strip()
 
             if 'contact_number' in data and data['contact_number'].strip():
                 profile.contact_number = data['contact_number'].strip()
+
+            # बैंक खाता अपडेट (नया बैंक खाता जोड़ने पर पुनः सत्यापन की आवश्यकता होगी)
+            if 'bank_account_number' in data and data['bank_account_number'].strip():
+                profile.bank_account_number = data['bank_account_number'].strip()
+                profile.bank_account_verified = False
+                profile.penny_drop_verified = False
 
             if 'bank_name' in data and data['bank_name'].strip():
                 profile.bank_name = data['bank_name'].strip()
             if 'bank_ifsc_code' in data and data['bank_ifsc_code'].strip():
                 profile.bank_ifsc_code = data['bank_ifsc_code'].strip()
-            if 'bank_account_number' in data and data['bank_account_number'].strip():
-                profile.bank_account_number = data['bank_account_number'].strip()
 
             profile.save()
 
             return Response({
                 'success': True,
-                'message': 'सेलर दुकान का नाम, पता व बैंक खाता विवरण सुरक्षित रूप से अपडेट हो गया है।'
+                'message': 'दुकान का नाम, पता व बैंक खाता सुरक्षित रूप से अपडेट हो गया है।'
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
