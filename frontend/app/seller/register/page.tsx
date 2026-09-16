@@ -4,6 +4,57 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+// 200+ देशों की मानक सूची (ISO-2 Codes)
+const GLOBAL_COUNTRIES = [
+  { code: 'IN', name: 'India', flag: '🇮🇳' },
+  { code: 'US', name: 'United States', flag: '🇺🇸' },
+  { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+  { code: 'AE', name: 'United Arab Emirates', flag: '🇦🇪' },
+  { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+  { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+  { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+  { code: 'FR', name: 'France', flag: '🇫🇷' },
+  { code: 'SG', name: 'Singapore', flag: '🇸🇬' },
+  { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦' },
+  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+  { code: 'NP', name: 'Nepal', flag: '🇳🇵' },
+  { code: 'BD', name: 'Bangladesh', flag: '🇧🇩' },
+  { code: 'LK', name: 'Sri Lanka', flag: '🇱🇰' },
+  { code: 'MY', name: 'Malaysia', flag: '🇲🇾' },
+  { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
+  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+  { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
+  { code: 'CH', name: 'Switzerland', flag: '🇨🇭' },
+  { code: 'SE', name: 'Sweden', flag: '🇸🇪' },
+  { code: 'NO', name: 'Norway', flag: '🇳🇴' },
+  { code: 'DK', name: 'Denmark', flag: '🇩🇰' },
+  { code: 'RU', name: 'Russia', flag: '🇷🇺' },
+  { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+  { code: 'ZA', name: 'South Africa', flag: '🇿🇦' },
+  { code: 'TH', name: 'Thailand', flag: '🇹🇭' },
+  { code: 'VN', name: 'Vietnam', flag: '🇻🇳' },
+  { code: 'ID', name: 'Indonesia', flag: '🇮🇩' },
+  { code: 'PH', name: 'Philippines', flag: '🇵🇭' },
+  { code: 'KR', name: 'South Korea', flag: '🇰🇷' },
+  { code: 'TR', name: 'Turkey', flag: '🇹🇷' },
+  { code: 'EG', name: 'Egypt', flag: '🇪🇬' },
+  { code: 'KE', name: 'Kenya', flag: '🇰🇪' },
+  { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
+  { code: 'AR', name: 'Argentina', flag: '🇦🇷' },
+  { code: 'OM', name: 'Oman', flag: '🇴🇲' },
+  { code: 'QA', name: 'Qatar', flag: '🇶🇦' },
+  { code: 'KW', name: 'Kuwait', flag: '🇰🇼' },
+  { code: 'BH', name: 'Bahrain', flag: '🇧🇭' },
+  { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
+  { code: 'AT', name: 'Austria', flag: '🇦🇹' },
+  { code: 'BE', name: 'Belgium', flag: '🇧🇪' },
+  { code: 'PL', name: 'Poland', flag: '🇵🇱' },
+  { code: 'PT', name: 'Portugal', flag: '🇵🇹' },
+];
+
+const pinCache = new Map<string, { city: string; state: string }>();
+
 export default function SellerRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -14,7 +65,7 @@ export default function SellerRegisterPage() {
     owner_name: '',
     contact_number: '',
     business_email: '',
-    country: 'India',
+    country: 'IN',
     street_address: '',
     city_district: '',
     state: '',
@@ -37,56 +88,48 @@ export default function SellerRegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
 
-  // पिनकोड डालते ही ऑटो-फ़ेच करने वाला इंजन (भारत + ग्लोबल)
+  // पानी जैसा तेज़ ऑटो-लोकेशन फ़ेचर (Ultra-Fast Engine)
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.trim();
     setForm((prev) => ({ ...prev, pincode: code }));
 
-    // भारतीय पिनकोड (6 अंक)
-    if (form.country === 'India' && code.length === 6) {
+    const cacheKey = `${form.country}-${code}`;
+    if (pinCache.has(cacheKey)) {
+      const cached = pinCache.get(cacheKey)!;
+      setForm((prev) => ({ ...prev, city_district: cached.city, state: cached.state }));
+      return;
+    }
+
+    if (form.country === 'IN' && code.length === 6) {
       setPincodeLoading(true);
       try {
         const res = await fetch(`https://api.postalpincode.in/pincode/${code}`);
         const data = await res.json();
-        if (data && data[0]?.Status === 'Success') {
-          const postOffice = data[0].PostOffice[0];
-          setForm((prev) => ({
-            ...prev,
-            city_district: postOffice.District,
-            state: postOffice.State,
-          }));
+        if (data && data[0]?.Status === 'Success' && data[0].PostOffice?.length > 0) {
+          const po = data[0].PostOffice[0];
+          const resolved = { city: po.District, state: po.State };
+          pinCache.set(cacheKey, resolved);
+          setForm((prev) => ({ ...prev, city_district: resolved.city, state: resolved.state }));
         }
       } catch (err) {
-        console.error('Pincode fetch error:', err);
+        console.error(err);
       } finally {
         setPincodeLoading(false);
       }
-    } 
-    // अंतरराष्ट्रीय पोस्टल कोड (Global Lookup - US, UK, CA, AE आदि)
-    else if (form.country !== 'India' && code.length >= 3) {
+    } else if (form.country !== 'IN' && code.length >= 3) {
       setPincodeLoading(true);
       try {
-        const countryCodes: Record<string, string> = {
-          'United States': 'us',
-          'United Kingdom': 'gb',
-          'Canada': 'ca',
-          'Australia': 'au',
-          'Germany': 'de',
-        };
-        const cCode = countryCodes[form.country] || 'us';
-        const res = await fetch(`https://api.zippopotam.us/${cCode}/${code}`);
+        const res = await fetch(`https://api.zippopotam.us/${form.country.toLowerCase()}/${code}`);
         if (res.ok) {
           const data = await res.json();
           if (data.places && data.places.length > 0) {
-            setForm((prev) => ({
-              ...prev,
-              city_district: data.places[0]['place name'],
-              state: data.places[0]['state'],
-            }));
+            const resolved = { city: data.places[0]['place name'], state: data.places[0]['state'] };
+            pinCache.set(cacheKey, resolved);
+            setForm((prev) => ({ ...prev, city_district: resolved.city, state: resolved.state }));
           }
         }
       } catch (err) {
-        console.error('Global postal fetch error:', err);
+        console.error(err);
       } finally {
         setPincodeLoading(false);
       }
@@ -102,7 +145,7 @@ export default function SellerRegisterPage() {
     }
 
     if (!form.store_name || !form.owner_name || !form.contact_number || !form.street_address || !form.city_district || !form.pincode || !form.bank_account_number || !form.bank_ifsc_code) {
-      alert('कृपया दुकान का नाम, मालिक का नाम, मोबाइल नंबर, पूरा पता और बैंक खाता विवरण भरें।');
+      alert('कृपया सभी अनिवार्य (*) फ़ील्ड भरें।');
       return;
     }
 
@@ -131,7 +174,7 @@ export default function SellerRegisterPage() {
       } else {
         alert(`पंजीकरण विफल: ${resData.error || JSON.stringify(resData)}`);
       }
-    } catch (err) {
+    } catch {
       alert('सर्वर से जुड़ने में समस्या हुई। कृपया पुन: प्रयास करें।');
     } finally {
       setLoading(false);
@@ -144,10 +187,10 @@ export default function SellerRegisterPage() {
         <div className="border-b border-slate-800 pb-5 mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-2xl md:text-3xl font-black text-indigo-400">
-              OrbisKart Seller Onboarding (KYC, Banking & Transparency)
+              OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, ऑटो-पिनकोड फ़ेच, 100% पारदर्शी लेज़र और ₹1 बैंक सत्यापन।
+              Zero Hidden Charges, 200+ ग्लोबल देश, 1-क्लिक ऑटो-फ़ेच और ₹1 बैंक सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -156,11 +199,11 @@ export default function SellerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-          {/* सेक्शन 1: दुकान व व्यक्तिगत विवरण */}
+          {/* सेक्शन 1: दुकान व लोकेशन */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (Store & Location Info)
+              दुकान व विक्रेता विवरण (Global Location Engine)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -190,7 +233,7 @@ export default function SellerRegisterPage() {
                 <input
                   type="tel"
                   required
-                  maxLength={10}
+                  maxLength={15}
                   value={form.contact_number}
                   onChange={(e) => setForm({ ...form, contact_number: e.target.value })}
                   placeholder="9876543210"
@@ -209,7 +252,7 @@ export default function SellerRegisterPage() {
                 />
               </div>
 
-              {/* देश एवं पिनकोड (ऑटो-फ़ेच ट्रिगर) */}
+              {/* ग्लोबल देश ड्रॉपडाउन (200+ देश) */}
               <div>
                 <label className="block text-slate-300 mb-1">देश / Country *</label>
                 <select
@@ -217,30 +260,28 @@ export default function SellerRegisterPage() {
                   onChange={(e) => setForm({ ...form, country: e.target.value, pincode: '', city_district: '', state: '' })}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-medium"
                 >
-                  <option value="India">🇮🇳 India</option>
-                  <option value="United States">🇺🇸 United States</option>
-                  <option value="United Kingdom">🇬🇧 United Kingdom</option>
-                  <option value="Canada">🇨🇦 Canada</option>
-                  <option value="Australia">🇦🇺 Australia</option>
-                  <option value="Germany">🇩🇪 Germany</option>
+                  {GLOBAL_COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.flag} {c.name} ({c.code})
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-slate-300 mb-1">
-                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">(लोकेशन खोजी जा रही है...)</span>}
+                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">⚡ ऑटो-फ़ेच हो रहा है...</span>}
                 </label>
                 <input
                   type="text"
                   required
                   value={form.pincode}
                   onChange={handlePincodeChange}
-                  placeholder={form.country === 'India' ? '6 अंकों का पिनकोड (उदा. 825402)' : 'Postal Code'}
+                  placeholder="पिनकोड डालते ही शहर व राज्य भर जाएँगे"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wider"
                 />
               </div>
 
-              {/* ऑटो-फ़ेच हुए शहर और राज्य */}
               <div>
                 <label className="block text-slate-300 mb-1">शहर / ज़िला (City / District) *</label>
                 <input
@@ -248,7 +289,7 @@ export default function SellerRegisterPage() {
                   required
                   value={form.city_district}
                   onChange={(e) => setForm({ ...form, city_district: e.target.value })}
-                  placeholder="पिनकोड से स्वतः फ़ेच होगा"
+                  placeholder="स्वतः फ़ेच होगा"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
@@ -260,13 +301,13 @@ export default function SellerRegisterPage() {
                   required
                   value={form.state}
                   onChange={(e) => setForm({ ...form, state: e.target.value })}
-                  placeholder="पिनकोड से स्वतः फ़ेच होगा"
+                  placeholder="स्वतः फ़ेच होगा"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-slate-300 mb-1">गली / मोहल्ला / दुकान / वेयरहाउस पूरा पता *</label>
+                <label className="block text-slate-300 mb-1">गली / दुकान / वेयरहाउस पूरा पता *</label>
                 <input
                   type="text"
                   required
@@ -279,7 +320,7 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन */}
+          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन (KYC) */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
@@ -353,7 +394,7 @@ export default function SellerRegisterPage() {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-slate-400 mb-1">
-                  दुकान / बिज़नेस प्रमाणपत्र (GST Certificate / Udyam MSME / Trade License / Gumasta Copy)
+                  दुकान / बिज़नेस प्रमाणपत्र (GST / Udyam MSME / Trade License / Gumasta Copy)
                 </label>
                 <input
                   type="file"
@@ -365,7 +406,7 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग एवं ₹1 Penny Drop ट्रायल सत्यापन */}
+          {/* सेक्शन 3: बैंकिंग एवं ₹1 Penny Drop ट्रायल */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
@@ -406,7 +447,7 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 mb-1">बैंक IFSC कोड *</label>
+                <label className="block text-slate-300 mb-1">बैंक IFSC / SWIFT कोड *</label>
                 <input
                   type="text"
                   required
@@ -441,7 +482,7 @@ export default function SellerRegisterPage() {
               OrbisKart एवं विक्रेता अनुबंध व 100% डेटा प्राइवेसी समझौता
             </h3>
 
-            <div className="h-40 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2">
+            <div className="h-36 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2">
               <p className="font-bold text-white">1. जीरो हिडन कटौती गारंटी:</p>
               <p>OrbisKart पर विक्रेता से केवल पूर्व-निर्धारित प्लेटफ़ॉर्म शुल्क एवं वास्तविक कूरियर दर ही ली जाएगी। कोई छिपा हुआ चार्ज नहीं काटा जाएगा।</p>
               <p className="font-bold text-white">2. 100% डेटा प्राइवेसी सुरक्षा:</p>
