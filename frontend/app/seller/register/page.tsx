@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-// 200+ देशों की मानक सूची (ISO-2 Codes)
 const GLOBAL_COUNTRIES = [
   { code: 'IN', name: 'India', flag: '🇮🇳' },
   { code: 'US', name: 'United States', flag: '🇺🇸' },
@@ -16,49 +15,15 @@ const GLOBAL_COUNTRIES = [
   { code: 'FR', name: 'France', flag: '🇫🇷' },
   { code: 'SG', name: 'Singapore', flag: '🇸🇬' },
   { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦' },
-  { code: 'JP', name: 'Japan', flag: '🇯🇵' },
-  { code: 'NP', name: 'Nepal', flag: '🇳🇵' },
-  { code: 'BD', name: 'Bangladesh', flag: '🇧🇩' },
-  { code: 'LK', name: 'Sri Lanka', flag: '🇱🇰' },
-  { code: 'MY', name: 'Malaysia', flag: '🇲🇾' },
-  { code: 'NZ', name: 'New Zealand', flag: '🇳🇿' },
-  { code: 'IT', name: 'Italy', flag: '🇮🇹' },
-  { code: 'ES', name: 'Spain', flag: '🇪🇸' },
-  { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
-  { code: 'CH', name: 'Switzerland', flag: '🇨🇭' },
-  { code: 'SE', name: 'Sweden', flag: '🇸🇪' },
-  { code: 'NO', name: 'Norway', flag: '🇳🇴' },
-  { code: 'DK', name: 'Denmark', flag: '🇩🇰' },
-  { code: 'RU', name: 'Russia', flag: '🇷🇺' },
-  { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
-  { code: 'ZA', name: 'South Africa', flag: '🇿🇦' },
-  { code: 'TH', name: 'Thailand', flag: '🇹🇭' },
-  { code: 'VN', name: 'Vietnam', flag: '🇻🇳' },
-  { code: 'ID', name: 'Indonesia', flag: '🇮🇩' },
-  { code: 'PH', name: 'Philippines', flag: '🇵🇭' },
-  { code: 'KR', name: 'South Korea', flag: '🇰🇷' },
-  { code: 'TR', name: 'Turkey', flag: '🇹🇷' },
-  { code: 'EG', name: 'Egypt', flag: '🇪🇬' },
-  { code: 'KE', name: 'Kenya', flag: '🇰🇪' },
-  { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
-  { code: 'AR', name: 'Argentina', flag: '🇦🇷' },
-  { code: 'OM', name: 'Oman', flag: '🇴🇲' },
-  { code: 'QA', name: 'Qatar', flag: '🇶🇦' },
-  { code: 'KW', name: 'Kuwait', flag: '🇰🇼' },
-  { code: 'BH', name: 'Bahrain', flag: '🇧🇭' },
-  { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
-  { code: 'AT', name: 'Austria', flag: '🇦🇹' },
-  { code: 'BE', name: 'Belgium', flag: '🇧🇪' },
-  { code: 'PL', name: 'Poland', flag: '🇵🇱' },
-  { code: 'PT', name: 'Portugal', flag: '🇵🇹' },
 ];
-
-const pinCache = new Map<string, { city: string; state: string }>();
 
 export default function SellerRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pincodeLoading, setPincodeLoading] = useState(false);
+
+  // लोकल सर्कल / पोस्ट ऑफिस की सूची
+  const [localCircles, setLocalCircles] = useState<string[]>([]);
 
   const [form, setForm] = useState({
     store_name: '',
@@ -69,6 +34,7 @@ export default function SellerRegisterPage() {
     street_address: '',
     city_district: '',
     state: '',
+    local_circle: '',
     pincode: '',
     gstin: '',
     msme_number: '',
@@ -88,17 +54,11 @@ export default function SellerRegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
 
-  // पानी जैसा तेज़ ऑटो-लोकेशन फ़ेचर (Ultra-Fast Engine)
+  // पिनकोड डालते ही ज़िला, राज्य और सभी लोकल सर्कल/पोस्ट ऑफिस फ़ेच करना
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.trim();
-    setForm((prev) => ({ ...prev, pincode: code }));
-
-    const cacheKey = `${form.country}-${code}`;
-    if (pinCache.has(cacheKey)) {
-      const cached = pinCache.get(cacheKey)!;
-      setForm((prev) => ({ ...prev, city_district: cached.city, state: cached.state }));
-      return;
-    }
+    setForm((prev) => ({ ...prev, pincode: code, local_circle: '' }));
+    setLocalCircles([]);
 
     if (form.country === 'IN' && code.length === 6) {
       setPincodeLoading(true);
@@ -106,10 +66,19 @@ export default function SellerRegisterPage() {
         const res = await fetch(`https://api.postalpincode.in/pincode/${code}`);
         const data = await res.json();
         if (data && data[0]?.Status === 'Success' && data[0].PostOffice?.length > 0) {
-          const po = data[0].PostOffice[0];
-          const resolved = { city: po.District, state: po.State };
-          pinCache.set(cacheKey, resolved);
-          setForm((prev) => ({ ...prev, city_district: resolved.city, state: resolved.state }));
+          const poList = data[0].PostOffice;
+          const firstPO = poList[0];
+          
+          // सभी लोकल पोस्ट ऑफिस / सर्कल के नाम निकालना
+          const circleNames = Array.from(new Set(poList.map((p: any) => p.Name))) as string[];
+          setLocalCircles(circleNames);
+
+          setForm((prev) => ({
+            ...prev,
+            city_district: firstPO.District,
+            state: firstPO.State,
+            local_circle: circleNames[0] || '',
+          }));
         }
       } catch (err) {
         console.error(err);
@@ -123,9 +92,13 @@ export default function SellerRegisterPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.places && data.places.length > 0) {
-            const resolved = { city: data.places[0]['place name'], state: data.places[0]['state'] };
-            pinCache.set(cacheKey, resolved);
-            setForm((prev) => ({ ...prev, city_district: resolved.city, state: resolved.state }));
+            const place = data.places[0];
+            setForm((prev) => ({
+              ...prev,
+              city_district: place['place name'],
+              state: place['state'],
+              local_circle: place['place name'],
+            }));
           }
         }
       } catch (err) {
@@ -152,8 +125,17 @@ export default function SellerRegisterPage() {
     setLoading(true);
 
     const data = new FormData();
+    // पूरे पते में लोकल सर्कल को जोड़ना
+    const fullStreetAddress = form.local_circle 
+      ? `${form.street_address}, Circle/PO: ${form.local_circle}`
+      : form.street_address;
+
     Object.entries(form).forEach(([key, value]) => {
-      data.append(key, value);
+      if (key === 'street_address') {
+        data.append(key, fullStreetAddress);
+      } else {
+        data.append(key, value);
+      }
     });
 
     if (panDoc) data.append('pan_doc', panDoc);
@@ -190,7 +172,7 @@ export default function SellerRegisterPage() {
               OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, 200+ ग्लोबल देश, 1-क्लिक ऑटो-फ़ेच और ₹1 बैंक सत्यापन।
+              Zero Hidden Charges, लोकल सर्कल/डाकघर ऑटो-फ़ेच, 100% पारदर्शी लेज़र और ₹1 बैंक सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -203,7 +185,7 @@ export default function SellerRegisterPage() {
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (Global Location Engine)
+              दुकान व विक्रेता विवरण (Global Location & Circle Engine)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -252,12 +234,11 @@ export default function SellerRegisterPage() {
                 />
               </div>
 
-              {/* ग्लोबल देश ड्रॉपडाउन (200+ देश) */}
               <div>
                 <label className="block text-slate-300 mb-1">देश / Country *</label>
                 <select
                   value={form.country}
-                  onChange={(e) => setForm({ ...form, country: e.target.value, pincode: '', city_district: '', state: '' })}
+                  onChange={(e) => setForm({ ...form, country: e.target.value, pincode: '', city_district: '', state: '', local_circle: '' })}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-medium"
                 >
                   {GLOBAL_COUNTRIES.map((c) => (
@@ -270,17 +251,37 @@ export default function SellerRegisterPage() {
 
               <div>
                 <label className="block text-slate-300 mb-1">
-                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">⚡ ऑटो-फ़ेच हो रहा है...</span>}
+                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">⚡ लोकल सर्कल खोजा जा रहा है...</span>}
                 </label>
                 <input
                   type="text"
                   required
                   value={form.pincode}
                   onChange={handlePincodeChange}
-                  placeholder="पिनकोड डालते ही शहर व राज्य भर जाएँगे"
+                  placeholder="उदा. 825401 या 825402"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wider"
                 />
               </div>
+
+              {/* स्थानीय डाकघर / सर्कल चयन ड्रॉपडाउन */}
+              {localCircles.length > 0 && (
+                <div className="md:col-span-2 bg-indigo-950/30 border border-indigo-500/40 p-3 rounded-2xl">
+                  <label className="block text-indigo-300 font-bold mb-1">
+                    📍 अपना स्थानीय डाकघर / सर्कल चुनें (Select Local Area / Post Office Circle) *
+                  </label>
+                  <select
+                    value={form.local_circle}
+                    onChange={(e) => setForm({ ...form, local_circle: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-400 rounded-xl text-white font-semibold text-xs"
+                  >
+                    {localCircles.map((circle) => (
+                      <option key={circle} value={circle}>
+                        📌 {circle} (Circle Office)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-slate-300 mb-1">शहर / ज़िला (City / District) *</label>
@@ -307,20 +308,20 @@ export default function SellerRegisterPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-slate-300 mb-1">गली / दुकान / वेयरहाउस पूरा पता *</label>
+                <label className="block text-slate-300 mb-1">गली / दुकान संख्या / वेयरहाउस पूरा लैंडमार्क पता *</label>
                 <input
                   type="text"
                   required
                   value={form.street_address}
                   onChange={(e) => setForm({ ...form, street_address: e.target.value })}
-                  placeholder="उदा. Opposite Shiv Mandir, Basaria, Post- Deokuli"
+                  placeholder="उदा. Naresh Mobile And Csc Centre, Opposite Shivmandir Basaria"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन (KYC) */}
+          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
@@ -447,7 +448,7 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 mb-1">बैंक IFSC / SWIFT कोड *</label>
+                <label className="block text-slate-300 mb-1">बैंक IFSC कोड *</label>
                 <input
                   type="text"
                   required
