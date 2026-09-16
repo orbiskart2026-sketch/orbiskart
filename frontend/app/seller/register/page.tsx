@@ -7,15 +7,17 @@ import { useRouter } from 'next/navigation';
 export default function SellerRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [pincodeLoading, setPincodeLoading] = useState(false);
 
   const [form, setForm] = useState({
     store_name: '',
     owner_name: '',
     contact_number: '',
     business_email: '',
+    country: 'India',
     street_address: '',
     city_district: '',
-    state: 'Jharkhand',
+    state: '',
     pincode: '',
     gstin: '',
     msme_number: '',
@@ -32,9 +34,64 @@ export default function SellerRegisterPage() {
   const [businessDoc, setBusinessDoc] = useState<File | null>(null);
   const [chequeDoc, setChequeDoc] = useState<File | null>(null);
 
-  // टर्म्स और डिक्लेरेशन स्टेट
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
+
+  // पिनकोड डालते ही ऑटो-फ़ेच करने वाला इंजन (भारत + ग्लोबल)
+  const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const code = e.target.value.trim();
+    setForm((prev) => ({ ...prev, pincode: code }));
+
+    // भारतीय पिनकोड (6 अंक)
+    if (form.country === 'India' && code.length === 6) {
+      setPincodeLoading(true);
+      try {
+        const res = await fetch(`https://api.postalpincode.in/pincode/${code}`);
+        const data = await res.json();
+        if (data && data[0]?.Status === 'Success') {
+          const postOffice = data[0].PostOffice[0];
+          setForm((prev) => ({
+            ...prev,
+            city_district: postOffice.District,
+            state: postOffice.State,
+          }));
+        }
+      } catch (err) {
+        console.error('Pincode fetch error:', err);
+      } finally {
+        setPincodeLoading(false);
+      }
+    } 
+    // अंतरराष्ट्रीय पोस्टल कोड (Global Lookup - US, UK, CA, AE आदि)
+    else if (form.country !== 'India' && code.length >= 3) {
+      setPincodeLoading(true);
+      try {
+        const countryCodes: Record<string, string> = {
+          'United States': 'us',
+          'United Kingdom': 'gb',
+          'Canada': 'ca',
+          'Australia': 'au',
+          'Germany': 'de',
+        };
+        const cCode = countryCodes[form.country] || 'us';
+        const res = await fetch(`https://api.zippopotam.us/${cCode}/${code}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.places && data.places.length > 0) {
+            setForm((prev) => ({
+              ...prev,
+              city_district: data.places[0]['place name'],
+              state: data.places[0]['state'],
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Global postal fetch error:', err);
+      } finally {
+        setPincodeLoading(false);
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +102,7 @@ export default function SellerRegisterPage() {
     }
 
     if (!form.store_name || !form.owner_name || !form.contact_number || !form.street_address || !form.city_district || !form.pincode || !form.bank_account_number || !form.bank_ifsc_code) {
-      alert('कृपया दुकान का नाम, मालिक का नाम, मोबाइल नंबर, पूरा पता और बैंक खाता विवरण अनिवार्य रूप से भरें।');
+      alert('कृपया दुकान का नाम, मालिक का नाम, मोबाइल नंबर, पूरा पता और बैंक खाता विवरण भरें।');
       return;
     }
 
@@ -90,7 +147,7 @@ export default function SellerRegisterPage() {
               OrbisKart Seller Onboarding (KYC, Banking & Transparency)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, 100% पारदर्शी लेज़र, ₹1 ट्रायल बैंक सत्यापन और डायरेक्ट सेटलमेंट।
+              Zero Hidden Charges, ऑटो-पिनकोड फ़ेच, 100% पारदर्शी लेज़र और ₹1 बैंक सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -99,11 +156,11 @@ export default function SellerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-          {/* सेक्शन 1: दुकान व व्यक्तिगत विवरण (अलग-अलग पता कॉलम) */}
+          {/* सेक्शन 1: दुकान व व्यक्तिगत विवरण */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (Store & Owner Info)
+              दुकान व विक्रेता विवरण (Store & Location Info)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -152,19 +209,38 @@ export default function SellerRegisterPage() {
                 />
               </div>
 
-              {/* अलग-अलग विस्तृत पता */}
-              <div className="md:col-span-2">
-                <label className="block text-slate-300 mb-1">गली / मोहल्ला / वेयरहाउस पता *</label>
+              {/* देश एवं पिनकोड (ऑटो-फ़ेच ट्रिगर) */}
+              <div>
+                <label className="block text-slate-300 mb-1">देश / Country *</label>
+                <select
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value, pincode: '', city_district: '', state: '' })}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-medium"
+                >
+                  <option value="India">🇮🇳 India</option>
+                  <option value="United States">🇺🇸 United States</option>
+                  <option value="United Kingdom">🇬🇧 United Kingdom</option>
+                  <option value="Canada">🇨🇦 Canada</option>
+                  <option value="Australia">🇦🇺 Australia</option>
+                  <option value="Germany">🇩🇪 Germany</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1">
+                  पिनकोड / Postal Code * {pincodeLoading && <span className="text-indigo-400 font-normal">(लोकेशन खोजी जा रही है...)</span>}
+                </label>
                 <input
                   type="text"
                   required
-                  value={form.street_address}
-                  onChange={(e) => setForm({ ...form, street_address: e.target.value })}
-                  placeholder="उदा. Basaria, Post- Deokuli, PS- Daru"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                  value={form.pincode}
+                  onChange={handlePincodeChange}
+                  placeholder={form.country === 'India' ? '6 अंकों का पिनकोड (उदा. 825402)' : 'Postal Code'}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wider"
                 />
               </div>
 
+              {/* ऑटो-फ़ेच हुए शहर और राज्य */}
               <div>
                 <label className="block text-slate-300 mb-1">शहर / ज़िला (City / District) *</label>
                 <input
@@ -172,40 +248,38 @@ export default function SellerRegisterPage() {
                   required
                   value={form.city_district}
                   onChange={(e) => setForm({ ...form, city_district: e.target.value })}
-                  placeholder="उदा. Hazaribagh"
+                  placeholder="पिनकोड से स्वतः फ़ेच होगा"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-300 mb-1">राज्य (State) *</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.state}
-                    onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    placeholder="Jharkhand"
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 mb-1">पिनकोड *</label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={6}
-                    value={form.pincode}
-                    onChange={(e) => setForm({ ...form, pincode: e.target.value })}
-                    placeholder="825402"
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
-                  />
-                </div>
+              <div>
+                <label className="block text-slate-300 mb-1">राज्य / State *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.state}
+                  onChange={(e) => setForm({ ...form, state: e.target.value })}
+                  placeholder="पिनकोड से स्वतः फ़ेच होगा"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-slate-300 mb-1">गली / मोहल्ला / दुकान / वेयरहाउस पूरा पता *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.street_address}
+                  onChange={(e) => setForm({ ...form, street_address: e.target.value })}
+                  placeholder="उदा. Opposite Shiv Mandir, Basaria, Post- Deokuli"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
+                />
               </div>
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन (GST / MSME / बिज़नेस प्रूफ) */}
+          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
@@ -257,7 +331,6 @@ export default function SellerRegisterPage() {
                 />
               </div>
 
-              {/* डॉक्युमेंट अपलोड्स */}
               <div>
                 <label className="block text-slate-400 mb-1">PAN कार्ड दस्तावेज़ (फ़ोटो/PDF) *</label>
                 <input
@@ -292,7 +365,7 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग व ₹1 पेनी-ड्रॉप बैंक सत्यापन */}
+          {/* सेक्शन 3: बैंकिंग एवं ₹1 Penny Drop ट्रायल सत्यापन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
@@ -345,7 +418,7 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1">कैंसिल्ड चेक / पासबुक की प्रति (Bank Proof) *</label>
+                <label className="block text-slate-400 mb-1">कैंसिल्ड चेक / पासबुक प्रति (Bank Proof) *</label>
                 <input
                   type="file"
                   accept="image/*,.pdf"
@@ -356,34 +429,23 @@ export default function SellerRegisterPage() {
               </div>
             </div>
 
-            {/* ₹1 Penny Drop बैंक सत्यापन नोटिस */}
             <div className="mt-4 p-3 bg-blue-950/40 border border-blue-800/60 rounded-xl text-[11px] text-blue-300 leading-relaxed">
               ℹ️ <b>पारदर्शी बैंक सत्यापन नीति:</b> फ़ॉर्म सबमिट होने के बाद OrbisKart एडमिन आपके बैंक खाते में ₹1 का ट्रायल क्रेडिट (Penny Drop) सत्यापन भेजेगा। बैंक खाता सही पाए जाने पर आपकी दुकान और उत्पाद तुरंत लाइव हो जाएँगे।
             </div>
           </div>
 
-          {/* सेक्शन 4: टर्म्स, कंडीशंस एवं प्राइवेसी सुरक्षा अनुबंध */}
+          {/* सेक्शन 4: नियम एवं शर्तें */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-black flex items-center justify-center text-[10px]">4</span>
               OrbisKart एवं विक्रेता अनुबंध व 100% डेटा प्राइवेसी समझौता
             </h3>
 
-            <div className="h-44 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2.5">
-              <p className="font-bold text-white">1. जीरो हिडन कटौती गारंटी (Zero Hidden Cuts):</p>
-              <p>OrbisKart पर विक्रेता के प्रत्येक ऑर्डर पर केवल पूर्व-निर्धारित प्लेटफ़ॉर्म शुल्क एवं वास्तविक कूरियर दर ही ली जाएगी। किसी भी प्रकार का गुप्त रिटर्न पेनल्टी या अघोषित विज्ञापन शुल्क नहीं काटा जाएगा।</p>
-
-              <p className="font-bold text-white">2. 100% डेटा प्राइवेसी व सुरक्षा नीति:</p>
-              <p>विक्रेता का पहचान पत्र, पैन, बैंक खाता व संपर्क जानकारी एन्क्रिप्टेड सुरक्षा में रहेगी। इसे किसी भी तीसरे पक्ष या मार्केटिंग एजेंसी के साथ कभी साझा नहीं किया जाएगा।</p>
-
-              <p className="font-bold text-white">3. स्वतंत्र प्रोफ़ाइल व बैंक बदलाव अधिकार (Self-Service Profile Edit):</p>
-              <p>विक्रेता को अपने सेलर डैशबोर्ड से भविष्य में कभी भी अपनी दुकान का नाम, व्यापारिक पता या बैंक खाता विवरण सुरक्षा सत्यापन के साथ बदलने का पूर्ण अधिकार रहेगा।</p>
-
-              <p className="font-bold text-white">4. समयबद्ध स्वचालित बैंक भुगतान (T+2 / 7-Day Settlement):</p>
-              <p>ऑर्डर डिलीवरी सत्यापित होने के बाद शुद्ध विक्रय राशि सीधे विक्रेता के पंजीकृत बैंक खाते में NEFT/RTGS के माध्यम से ट्रांसफ़र होगी, जिसकी कटौती स्लिप (Deduction Slip) पोर्टल पर उपलब्ध रहेगी।</p>
-
-              <p className="font-bold text-white">5. वास्तविक व प्रामाणिक सामान विक्रय:</p>
-              <p>विक्रेता यह सुनिश्चित करेगा कि उसके द्वारा लिस्ट किए गए उत्पाद 100% असली, वैध और सरकारी मानकों के अनुरूप हैं।</p>
+            <div className="h-40 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2">
+              <p className="font-bold text-white">1. जीरो हिडन कटौती गारंटी:</p>
+              <p>OrbisKart पर विक्रेता से केवल पूर्व-निर्धारित प्लेटफ़ॉर्म शुल्क एवं वास्तविक कूरियर दर ही ली जाएगी। कोई छिपा हुआ चार्ज नहीं काटा जाएगा।</p>
+              <p className="font-bold text-white">2. 100% डेटा प्राइवेसी सुरक्षा:</p>
+              <p>विक्रेता की पहचान और बैंकिंग विवरण एन्क्रिप्टेड सुरक्षा में रहेंगे और किसी तीसरे पक्ष के साथ साझा नहीं किए जाएँगे।</p>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -409,7 +471,7 @@ export default function SellerRegisterPage() {
                   className="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
                 />
                 <span className="text-slate-300 text-xs">
-                  <b>सत्यनिष्ठा घोषणा (Declaration):</b> मैं प्रमाणित करता/करती हूँ कि मेरे द्वारा दी गई सभी जानकारी (नाम, दुकान का पता, पैन, बिज़नेस डॉक्युमेंट व बैंक खाता) 100% सत्य व सटीक है।
+                  <b>सत्यनिष्ठा घोषणा:</b> मैं प्रमाणित करता/करती हूँ कि मेरे द्वारा दी गई सभी जानकारी (नाम, पता, पैन, बिज़नेस डॉक्युमेंट व बैंक खाता) 100% सत्य व सटीक है।
                 </span>
               </label>
             </div>
