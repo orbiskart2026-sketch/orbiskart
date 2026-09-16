@@ -29,8 +29,18 @@ export default function SellerRegisterPage() {
   const [idDoc, setIdDoc] = useState<File | null>(null);
   const [chequeDoc, setChequeDoc] = useState<File | null>(null);
 
+  // टर्म्स और डिक्लेरेशन स्टेट
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [declaredAccurate, setDeclaredAccurate] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!acceptedTerms || !declaredAccurate) {
+      alert('कृपया OrbisKart की पारदर्शिता नीति व नियम-शर्तों को स्वीकार करें और घोषणा पर टिक करें।');
+      return;
+    }
+
     if (!form.store_name || !form.owner_name || !form.contact_number || !form.bank_account_number || !form.bank_ifsc_code) {
       alert('कृपया सभी अनिवार्य (*) फ़ील्ड भरें।');
       return;
@@ -54,8 +64,8 @@ export default function SellerRegisterPage() {
       });
 
       const resData = await res.json();
-      if (res.ok && (resData.success || resData.id)) {
-        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। अब आप उत्पाद अपलोड कर सकते हैं।');
+      if (res.ok && (resData.success || resData.id || resData.vendor_id)) {
+        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। अब आप सीधे उत्पाद अपलोड और मैनेज कर सकते हैं।');
         router.push('/seller');
       } else {
         alert(`पंजीकरण विफल: ${resData.error || JSON.stringify(resData)}`);
@@ -73,10 +83,10 @@ export default function SellerRegisterPage() {
         <div className="border-b border-slate-800 pb-5 mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-2xl md:text-3xl font-black text-indigo-400">
-              OrbisKart Seller Onboarding (KYC & Banking)
+              OrbisKart Seller Onboarding (KYC, Banking & Transparency)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              पारदर्शी व्यापार, सुरक्षित भुगतान एवं डायरेक्ट बैंक सेटलमेंट के लिए आवश्यक विवरण भरें।
+              Zero Hidden Charges, 100% पारदर्शी लेज़र और डायरेक्ट बैंक सेटलमेंट।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -287,12 +297,67 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
+          {/* सेक्शन 4: टर्म्स, कंडीशंस एवं प्राइवेसी सुरक्षा अनुबंध */}
+          <div className="border-t border-slate-800 pt-6">
+            <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-black flex items-center justify-center text-[10px]">4</span>
+              OrbisKart एवं विक्रेता अनुबंध व 100% डेटा प्राइवेसी समझौता
+            </h3>
+
+            {/* स्क्रॉल करने योग्य टर्म्स बॉक्स */}
+            <div className="h-44 overflow-y-auto bg-slate-950 border border-slate-800 rounded-2xl p-4 text-[11px] leading-relaxed text-slate-300 space-y-2.5">
+              <p className="font-bold text-white">1. जीरो हिडन कटौती गारंटी (Zero Hidden Cuts):</p>
+              <p>OrbisKart पर विक्रेता के प्रत्येक ऑर्डर पर केवल पूर्व-निर्धारित प्लेटफ़ॉर्म शुल्क एवं वास्तविक कूरियर दर ही ली जाएगी। किसी भी प्रकार का गुप्त रिटर्न पेनल्टी या अघोषित विज्ञापन शुल्क नहीं काटा जाएगा।</p>
+
+              <p className="font-bold text-white">2. 100% डेटा प्राइवेसी व सुरक्षा नीति:</p>
+              <p>विक्रेता का आधार, पैन, बैंक खाता व संपर्क जानकारी एन्क्रिप्टेड सुरक्षा में रहेगी। इसे किसी भी तीसरे पक्ष या मार्केटिंग एजेंसी के साथ कभी साझा नहीं किया जाएगा।</p>
+
+              <p className="font-bold text-white">3. स्वतंत्र प्रोफ़ाइल व बैंक बदलाव अधिकार (Self-Service Profile Edit):</p>
+              <p>विक्रेता को अपने सेलर डैशबोर्ड से भविष्य में कभी भी अपनी दुकान का नाम, व्यापारिक पता या बैंक खाता विवरण OTP सुरक्षा सत्यापन के साथ बदलने का पूर्ण अधिकार रहेगा।</p>
+
+              <p className="font-bold text-white">4. समयबद्ध स्वचालित बैंक भुगतान (T+2 / 7-Day Settlement):</p>
+              <p>ऑर्डर डिलीवरी सत्यापित होने के बाद शुद्ध विक्रय राशि सीधे विक्रेता के पंजीकृत बैंक खाते में NEFT/RTGS के माध्यम से ट्रांसफ़र होगी, जिसकी कटौती स्लिप (Deduction Slip) पोर्टल पर उपलब्ध रहेगी।</p>
+
+              <p className="font-bold text-white">5. वास्तविक व प्रामाणिक सामान विक्रय:</p>
+              <p>विक्रेता यह सुनिश्चित करेगा कि उसके द्वारा लिस्ट किए गए उत्पाद 100% असली, वैध और सरकारी मानकों के अनुरूप हैं।</p>
+            </div>
+
+            {/* अनिवार्य चेकबॉक्स */}
+            <div className="mt-4 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  required
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-slate-300 text-xs">
+                  मैंने <b>OrbisKart सेलर नियम व शर्तें, प्राइवेसी अनुबंध एवं पारदर्शी कटौती नीति</b> को ध्यानपूर्वक पढ़ लिया है और मैं इनसे पूरी तरह सहमत हूँ।
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  required
+                  checked={declaredAccurate}
+                  onChange={(e) => setDeclaredAccurate(e.target.checked)}
+                  className="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-slate-300 text-xs">
+                  <b>सत्यनिष्ठा घोषणा (Declaration):</b> मैं प्रमाणित करता/करती हूँ कि मेरे द्वारा दी गई सभी जानकारी (नाम, दुकान का पता, पैन व बैंक खाता) 100% सत्य व सटीक है।
+                </span>
+              </label>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
             className="w-full py-4 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-sm transition shadow-xl disabled:opacity-50 cursor-pointer"
           >
-            {loading ? 'सत्यापित एवं पंजीकृत हो रहा है...' : 'सेलर खाता पंजीकृत करें एवं बिक्री शुरू करें 🚀'}
+            {loading ? 'सत्यापित एवं पंजीकृत हो रहा है...' : 'अनुबंध स्वीकार करें एवं सेलर खाता पंजीकृत करें 🚀'}
           </button>
         </form>
       </div>
