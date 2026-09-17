@@ -96,7 +96,7 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Multi-Image Upload API (Fixed Admin Visibility & Multi-Upload) ---
+# --- 2. Product List & Multi-Image Upload API (पूर्ण पारदर्शी फ़ील्ड्स) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -105,7 +105,6 @@ class ProductListView(APIView):
         try:
             queryset = Product.objects.select_related('category', 'category_policy', 'vendor').prefetch_related('additional_images').all()
 
-            # केवल सामान्य ग्राहकों के लिए इनएक्टिव छुपाएं, एडमिन/सेलर के लिए सब दिखाएं
             show_all = request.query_params.get('show_all', 'false').lower() == 'true'
             if not show_all and not (request.user.is_authenticated and request.user.is_staff):
                 queryset = queryset.filter(models.Q(is_active=True) | models.Q(is_active__isnull=True))
@@ -146,20 +145,32 @@ class ProductListView(APIView):
             title = data.get('title', '').strip()
             price = data.get('price')
             original_price = data.get('original_price') or price
-            weight_grams = data.get('weight_grams', 500)
+            category_id = data.get('category')
             description = data.get('description', '')
+
+            # पारदर्शी सेलर फ़ील्ड्स
+            weight_grams = data.get('weight_grams', 300)
+            pkg_l = data.get('package_length_cm', 10.0)
+            pkg_b = data.get('package_width_cm', 10.0)
+            pkg_h = data.get('package_height_cm', 5.0)
+            hsn_code = data.get('hsn_code', '851830')
+            gst_rate = data.get('gst_rate', '18.00')
+            color = data.get('color', '')
+            mfg_date = data.get('mfg_date') or None
+
             primary_image = request.FILES.get('image')
             package_photo = request.FILES.get('package_photo')
             video = request.FILES.get('video')
 
-            pkg_l = data.get('package_length_cm', 10.0)
-            pkg_b = data.get('package_width_cm', 10.0)
-            pkg_h = data.get('package_height_cm', 5.0)
-
             if not title or not price:
                 return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # वेंडर प्रोफाइल को सटीक खोजना
+            # श्रेणी खोजना
+            category_obj = None
+            if category_id:
+                category_obj = Category.objects.filter(id=category_id).first()
+
+            # वेंडर प्रोफाइल खोजना
             vendor_profile = None
             if request.user.is_authenticated and hasattr(request.user, 'vendor_profile'):
                 vendor_profile = request.user.vendor_profile
@@ -172,27 +183,39 @@ class ProductListView(APIView):
             default_policy = CategoryPolicy.objects.first()
 
             with transaction.atomic():
-                product = Product.objects.create(
-                    seller=request.user if request.user.is_authenticated else (vendor_profile.user if vendor_profile else None),
-                    vendor=vendor_profile,
-                    category_policy=default_policy,
-                    title=title,
-                    description=description,
-                    price=Decimal(str(price)),
-                    original_price=Decimal(str(original_price)),
-                    weight_grams=int(weight_grams or 500),
-                    package_length_cm=Decimal(str(pkg_l or 10.0)),
-                    package_width_cm=Decimal(str(pkg_b or 10.0)),
-                    package_height_cm=Decimal(str(pkg_h or 5.0)),
-                    package_photo=package_photo,
-                    is_weight_frozen=True,
-                    image=primary_image,
-                    video=video,
-                    is_active=True  # सेलर अपलोड करते ही Django Admin और स्टोर में दिखेगा
-                )
+                product_kwargs = {
+                    'seller': request.user if request.user.is_authenticated else (vendor_profile.user if vendor_profile else None),
+                    'vendor': vendor_profile,
+                    'category': category_obj,
+                    'category_policy': default_policy,
+                    'title': title,
+                    'description': description,
+                    'price': Decimal(str(price)),
+                    'original_price': Decimal(str(original_price)),
+                    'weight_grams': int(weight_grams or 300),
+                    'package_length_cm': Decimal(str(pkg_l or 10.0)),
+                    'package_width_cm': Decimal(str(pkg_b or 10.0)),
+                    'package_height_cm': Decimal(str(pkg_h or 5.0)),
+                    'package_photo': package_photo,
+                    'is_weight_frozen': True,
+                    'image': primary_image,
+                    'video': video,
+                    'is_active': True
+                }
 
-                # मल्टीपल गैलरी इमेजेज को सुरक्षित प्रोसेस करना
-                gallery_files = request.FILES.getlist('gallery_images')
+                if hasattr(Product, 'hsn_code'):
+                    product_kwargs['hsn_code'] = hsn_code
+                if hasattr(Product, 'gst_rate'):
+                    product_kwargs['gst_rate'] = Decimal(str(gst_rate))
+                if hasattr(Product, 'color'):
+                    product_kwargs['color'] = color
+                if hasattr(Product, 'mfg_date'):
+                    product_kwargs['mfg_date'] = mfg_date
+
+                product = Product.objects.create(**product_kwargs)
+
+                # मल्टीपल इमेजेस जोड़ना
+                gallery_files = request.FILES.getlist('gallery_images') or request.FILES.getlist('extra_images')
                 if gallery_files:
                     gallery_instances = [
                         ProductImage(product=product, image=img)
@@ -203,10 +226,12 @@ class ProductListView(APIView):
 
             return Response({
                 'success': True,
-                'message': f'उत्पाद #{product.id} सफलतापूर्वक अपलोड हुआ और Django Admin में उपलब्ध है!',
+                'message': f'उत्पाद #{product.id} सफलतापूर्वक लाइव हो गया!',
                 'product_id': product.id,
                 'title': product.title,
                 'price': str(product.price),
+                'original_price': str(product.original_price),
+                'category': category_obj.name if category_obj else 'None',
                 'gallery_count': len(gallery_files) if gallery_files else 0,
                 'is_active': product.is_active
             }, status=status.HTTP_201_CREATED)
@@ -944,7 +969,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Complete Seller Onboarding & KYC API (Separate Address & Penny Drop Verification) ---
+# --- 15. Complete Seller Onboarding & KYC API (1-Click Super Admin Approval) ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -956,14 +981,22 @@ class SellerRegisterAPIView(APIView):
             owner_name = data.get('owner_name', '').strip()
             contact_number = data.get('contact_number', '').strip()
             business_email = data.get('business_email', '').strip()
+            password = data.get('password', 'OrbisSeller@2026')
 
             if not store_name or not owner_name or not contact_number:
                 return Response({'error': 'दुकान का नाम, मालिक का नाम और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # यूज़र खोजना या नया बनाना
             user = request.user if request.user.is_authenticated else None
             if not user:
-                username = business_email.split('@')[0] if business_email else f"vendor_{contact_number[-4:]}"
-                user, _ = User.objects.get_or_create(username=username, defaults={'email': business_email})
+                username = business_email.split('@')[0] if business_email else f"seller_{contact_number[-4:]}"
+                user = User.objects.filter(username=username).first()
+                if not user:
+                    user = User.objects.create_user(
+                        username=username,
+                        email=business_email,
+                        password=password
+                    )
 
             profile, _ = VendorProfile.objects.get_or_create(
                 user=user,
@@ -973,7 +1006,6 @@ class SellerRegisterAPIView(APIView):
             profile.store_name = store_name
             profile.contact_number = contact_number
             profile.business_email = business_email
-
             profile.street_address = data.get('street_address', '').strip() or data.get('store_address', '').strip()
             profile.city_district = data.get('city_district', '').strip()
             profile.state = data.get('state', 'Jharkhand').strip()
@@ -985,10 +1017,11 @@ class SellerRegisterAPIView(APIView):
             profile.id_proof_number = data.get('id_proof_number', '').strip()
 
             profile.bank_name = data.get('bank_name', '').strip()
-            profile.bank_account_name = data.get('bank_account_name', '').strip()
+            profile.bank_account_name = data.get('bank_account_name', '').strip() or owner_name
             profile.bank_account_number = data.get('bank_account_number', '').strip()
-            profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip()
+            profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
 
+            # दस्तावेज़ अपलोड
             if 'pan_doc' in request.FILES:
                 profile.pan_doc = request.FILES['pan_doc']
             if 'identity_proof_doc' in request.FILES:
@@ -1005,10 +1038,11 @@ class SellerRegisterAPIView(APIView):
 
             return Response({
                 'success': True,
-                'message': 'सेलर प्रोफ़ाइल पंजीकृत हो चुकी है! OrbisKart एडमिन द्वारा आपके बैंक खाते में ₹1 का ट्रायल क्रेडिट (Penny Drop) सत्यापन पूरा होते ही आपकी दुकान लाइव हो जाएगी।',
+                'message': 'सेलर प्रोफ़ाइल दर्ज हो चुकी है! OrbisKart एडमिन पैनल से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।',
                 'vendor_id': str(profile.id),
+                'username': user.username,
                 'store_name': profile.store_name,
-                'status': 'Under ₹1 Bank Trial & Admin Verification'
+                'status': 'Pending Admin Approval'
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -1058,7 +1092,7 @@ class SellerProfileUpdateAPIView(APIView):
             if 'bank_name' in data and data['bank_name'].strip():
                 profile.bank_name = data['bank_name'].strip()
             if 'bank_ifsc_code' in data and data['bank_ifsc_code'].strip():
-                profile.bank_ifsc_code = data['bank_ifsc_code'].strip()
+                profile.bank_ifsc_code = data['bank_ifsc_code'].strip().upper()
 
             profile.save()
 
@@ -1087,7 +1121,6 @@ class VerifyBankAccountAPIView(APIView):
             key_secret = getattr(settings, 'RAZORPAY_KEY_SECRET', '')
             source_acc = getattr(settings, 'RAZORPAYX_ACCOUNT_NUMBER', '')
 
-            # RazorpayX Official Composite Validation Payload
             payload = {
                 "source_account_number": source_acc or "7878780080316316",
                 "validation_type": "optimized",
@@ -1131,7 +1164,6 @@ class VerifyBankAccountAPIView(APIView):
                         'message': 'बैंक खाता और खाताधारक का नाम NPCI द्वारा सफलतापूर्वक सत्यापित हुआ!'
                     }, status=status.HTTP_200_OK)
 
-            # यदि लाइव क्रेडेंशियल पेंडिंग हों तो सुरक्षित IFSC आधारित रिज़ॉल्वर
             err_desc = val_data.get('error', {}).get('description', '')
             ifsc_res = requests.get(f"https://ifsc.razorpay.com/{ifsc}", timeout=5)
             if ifsc_res.status_code == 200:
@@ -1279,7 +1311,6 @@ class ProcessAutomatedT3SettlementView(APIView):
             net_amount = slip.final_settlement_amount
             payout_utr = f"CMS-NEFT-{uuid.uuid4().hex[:10].upper()}"
 
-            # यदि लाइव RazorpayX Payouts सक्रिय है
             if source_acc and vendor.bank_account_number and vendor.bank_ifsc_code:
                 try:
                     payout_payload = {
