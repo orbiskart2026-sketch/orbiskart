@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 
 interface DeductionSlip {
@@ -43,8 +43,8 @@ export default function SellerPortalPage() {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<SellerSummaryData | null>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
-  
-  // प्रोडक्ट जोड़ने का स्टेट
+
+  // उत्पाद जोड़ने का स्टेट
   const [showAddModal, setShowAddModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
@@ -53,6 +53,8 @@ export default function SellerPortalPage() {
     category: '',
     price: '',
     original_price: '',
+    color: '',
+    mfg_date: '',
     stock: '10',
     weight_grams: '300',
     package_length_cm: '10.00',
@@ -62,7 +64,19 @@ export default function SellerPortalPage() {
     gst_rate: '18.00',
     is_weight_frozen: true,
   });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const [primaryFile, setPrimaryFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<FileList | null>(null);
+
+  // ऑटोमैटिक डिस्काउंट प्रतिशत कैलकुलेशन
+  const discountPercent = useMemo(() => {
+    const orig = parseFloat(formData.original_price);
+    const curr = parseFloat(formData.price);
+    if (!isNaN(orig) && !isNaN(curr) && orig > curr && orig > 0) {
+      return Math.round(((orig - curr) / orig) * 100);
+    }
+    return 0;
+  }, [formData.original_price, formData.price]);
 
   useEffect(() => {
     fetchSellerDashboard();
@@ -85,7 +99,7 @@ export default function SellerPortalPage() {
 
   const fetchSellerDashboard = async () => {
     setLoading(true);
-    const token = localStorage.getItem('access_token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     try {
       const res = await fetch(`${API_BASE_URL}/api/seller/dashboard/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -121,13 +135,15 @@ export default function SellerPortalPage() {
     e.preventDefault();
     setUploading(true);
 
-    const token = localStorage.getItem('access_token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     const form = new FormData();
     form.append('title', formData.title);
     form.append('description', formData.description);
     form.append('category', formData.category);
     form.append('price', formData.price);
     if (formData.original_price) form.append('original_price', formData.original_price);
+    if (formData.color) form.append('color', formData.color);
+    if (formData.mfg_date) form.append('mfg_date', formData.mfg_date);
     form.append('stock', formData.stock);
     form.append('weight_grams', formData.weight_grams);
     form.append('package_length_cm', formData.package_length_cm);
@@ -138,8 +154,16 @@ export default function SellerPortalPage() {
     form.append('is_weight_frozen', formData.is_weight_frozen ? 'true' : 'false');
     form.append('is_active', 'true');
 
-    if (selectedFile) {
-      form.append('image', selectedFile);
+    // मुख्य इमेज
+    if (primaryFile) {
+      form.append('image', primaryFile);
+    }
+
+    // मल्टीपल अतिरिक्त गैलरी फ़ोटोज़
+    if (galleryFiles) {
+      Array.from(galleryFiles).forEach((file) => {
+        form.append('gallery_images', file);
+      });
     }
 
     try {
@@ -150,7 +174,7 @@ export default function SellerPortalPage() {
       });
 
       if (res.ok) {
-        alert('✅ 100% पारदर्शी उत्पाद सफलतापूर्वक लाइव हो गया!');
+        alert('✅ 100% पारदर्शी उत्पाद मल्टीपल फ़ोटोज़ व वज़न लॉक के साथ लाइव हो गया!');
         setShowAddModal(false);
         setFormData({
           title: '',
@@ -158,6 +182,8 @@ export default function SellerPortalPage() {
           category: '',
           price: '',
           original_price: '',
+          color: '',
+          mfg_date: '',
           stock: '10',
           weight_grams: '300',
           package_length_cm: '10.00',
@@ -167,7 +193,8 @@ export default function SellerPortalPage() {
           gst_rate: '18.00',
           is_weight_frozen: true,
         });
-        setSelectedFile(null);
+        setPrimaryFile(null);
+        setGalleryFiles(null);
       } else {
         const errorData = await res.json();
         alert('अपलोड त्रुटि: ' + JSON.stringify(errorData));
@@ -185,8 +212,8 @@ export default function SellerPortalPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-gray-900 pb-20 font-sans">
-      {/* Seller Portal Header */}
-      <header className="bg-slate-900 text-white sticky top-0 z-50 shadow-md">
+      {/* Header */}
+      <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/" className="text-xl font-black text-blue-400">
@@ -221,10 +248,10 @@ export default function SellerPortalPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowAddModal(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <span>➕</span>
-              <span>नया पारदर्शी उत्पाद जोड़ें</span>
+              <span>नया पारदर्शी उत्पाद जोड़ें (Add Product)</span>
             </button>
             <span
               className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
@@ -241,7 +268,7 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* Financial Transparency Summary Cards */}
+        {/* Financial Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
@@ -278,7 +305,7 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* Ledger Table with 1-Click PDF Download */}
+        {/* Deduction Slips Table */}
         <div className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider">
@@ -364,16 +391,16 @@ export default function SellerPortalPage() {
         </div>
       </main>
 
-      {/* --- पूर्ण पारदर्शी Add Product Modal --- */}
+      {/* --- पूर्ण पारदर्शी Add Product Modal (Transparency Engine) --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 my-8">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-gray-100 my-8">
             <div className="flex items-center justify-between border-b pb-4 mb-4">
               <div>
                 <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
-                  <span>📦</span> नया पारदर्शी उत्पाद सूचीबद्ध करें (Add Product)
+                  <span>📦</span> नया पारदर्शी उत्पाद सूचीबद्ध करें (Add Product With Full Transparency)
                 </h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">वज़न फ़्रीज़, HSN कोड और सटीक जीएसटी के साथ</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">2 रेट्स, डिस्काउंट, वज़न फ़्रीज़, रंग, Mfg तिथि, HSN व मल्टी-फ़ोटो</p>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -384,7 +411,7 @@ export default function SellerPortalPage() {
             </div>
 
             <form onSubmit={handleProductSubmit} className="space-y-4 text-xs">
-              {/* श्रेणी व शीर्षक */}
+              {/* 1. Category & Title */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">श्रेणी (Category) *</label>
@@ -408,7 +435,7 @@ export default function SellerPortalPage() {
                   <input
                     type="text"
                     required
-                    placeholder="उदा. Pure Cotton Saree / Wireless Headphone"
+                    placeholder="उदा. कॉटन शर्ट / वायरलेस हेडफोन"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -416,7 +443,7 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* विवरण */}
+              {/* 2. विवरण */}
               <div>
                 <label className="font-bold text-gray-700 block mb-1">उत्पाद विवरण (Description) *</label>
                 <textarea
@@ -429,10 +456,22 @@ export default function SellerPortalPage() {
                 />
               </div>
 
-              {/* क़ीमत व स्टॉक */}
-              <div className="grid grid-cols-3 gap-3">
+              {/* 3. दो रेट (MRP vs Selling Price) & Discount % */}
+              <div className="grid grid-cols-3 gap-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100">
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">विक्रय मूल्य (₹) *</label>
+                  <label className="font-bold text-gray-700 block mb-1">MRP / पुराना मूल्य (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="2999"
+                    value={formData.original_price}
+                    onChange={(e) => setFormData({ ...formData, original_price: e.target.value })}
+                    className="w-full p-2.5 bg-white border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">विक्रय मूल्य (Selling Price ₹) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -440,22 +479,43 @@ export default function SellerPortalPage() {
                     placeholder="1499"
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-2.5 bg-white border rounded-xl font-black text-blue-700 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">MRP / पुराना मूल्य (₹)</label>
+                  <label className="font-bold text-gray-700 block mb-1">डिस्काउंट (%)</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    placeholder="2999"
-                    value={formData.original_price}
-                    onChange={(e) => setFormData({ ...formData, original_price: e.target.value })}
+                    type="text"
+                    readOnly
+                    value={discountPercent > 0 ? `${discountPercent}% छूट` : 'कोई छूट नहीं'}
+                    className="w-full p-2.5 bg-gray-100 border rounded-xl font-black text-emerald-600 text-center"
+                  />
+                </div>
+              </div>
+
+              {/* 4. Color, Manufacturing Date & Stock */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">रंग / वेरिएंट (Color)</label>
+                  <input
+                    type="text"
+                    placeholder="उदा. Black, Blue, Red"
+                    value={formData.color}
+                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
                     className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">उपलब्ध स्टॉक *</label>
+                  <label className="font-bold text-gray-700 block mb-1">निर्माण तिथि (Mfg Date)</label>
+                  <input
+                    type="date"
+                    value={formData.mfg_date}
+                    onChange={(e) => setFormData({ ...formData, mfg_date: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">उपलब्ध स्टॉक (Stock) *</label>
                   <input
                     type="number"
                     required
@@ -466,7 +526,7 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* पारदर्शी वज़न सुरक्षा (Weight Freeze) */}
+              {/* 5. पारदर्शी वज़न सुरक्षा (Weight Freeze) */}
               <div className="bg-amber-50/60 border border-amber-200 p-3.5 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-black text-amber-900 flex items-center gap-1.5">
@@ -479,7 +539,7 @@ export default function SellerPortalPage() {
                       onChange={(e) => setFormData({ ...formData, is_weight_frozen: e.target.checked })}
                       className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4"
                     />
-                    वज़न लॉक करें (No Penalty)
+                    वज़न लॉक करें (Zero Penalty)
                   </label>
                 </div>
 
@@ -527,7 +587,7 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* टैक्स, HSN व प्रोडक्ट इमेज */}
+              {/* 6. HSN कोड, GST दर & मल्टीपल इमेजेस */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">HSN कोड *</label>
@@ -557,19 +617,45 @@ export default function SellerPortalPage() {
                 </div>
 
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">उत्पाद फ़ोटो (Image) *</label>
+                  <label className="font-bold text-gray-700 block mb-1">मुख्य फ़ोटो (Primary Image) *</label>
                   <input
                     type="file"
                     accept="image/*"
                     required
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
-                        setSelectedFile(e.target.files[0]);
+                        setPrimaryFile(e.target.files[0]);
                       }
                     }}
                     className="w-full text-[11px] p-1.5 bg-gray-50 border rounded-xl"
                   />
                 </div>
+              </div>
+
+              {/* 7. मल्टीपल गैलरी फ़ोटोज़ (4-5 अतिरिक्त एंगल) */}
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">
+                  अतिरिक्त फ़ोटोज़ (Multiple Gallery Images)
+                  <span className="text-[10px] text-gray-400 font-normal ml-2">
+                    (Ctrl या Shift दबाकर 4-5 एंगल चुनें)
+                  </span>
+                </label>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setGalleryFiles(e.target.files);
+                    }
+                  }}
+                  className="w-full text-[11px] p-2 bg-gray-50 border border-dashed border-gray-300 rounded-xl"
+                />
+                {galleryFiles && (
+                  <span className="text-[11px] text-emerald-600 font-bold mt-1 block">
+                    ✔ {galleryFiles.length} अतिरिक्त फ़ोटोज़ चुनी गईं
+                  </span>
+                )}
               </div>
 
               {/* सबमिट बटन्स */}
@@ -586,7 +672,7 @@ export default function SellerPortalPage() {
                   disabled={uploading}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition cursor-pointer"
                 >
-                  {uploading ? '⏳ अपलोड हो रहा है...' : '🚀 उत्पाद लाइव करें (List Product)'}
+                  {uploading ? '⏳ उत्पाद अपलोड हो रहा है...' : '🚀 उत्पाद लाइव करें (List Product)'}
                 </button>
               </div>
             </form>
