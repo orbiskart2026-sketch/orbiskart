@@ -136,10 +136,16 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
+# Vercel के सभी सब-डोमेन को स्वीकार करने के लिए
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+]
+
 CSRF_TRUSTED_ORIGINS = [
     "https://orbiskart.com",
     "https://www.orbiskart.com",
     "https://orbiskart.onrender.com",
+    "https://*.vercel.app",
 ]
 
 CORS_ALLOW_HEADERS = [
@@ -152,10 +158,13 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    "x-cron-secret",       # T+3 ऑटो-सेटलमेंट शेड्यूलर हेडर
 ]
 
-# ==========================================
-# Razorpay Payment Gateway (.env से ऑटोमैटिक)
-# ==========================================
-RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID')
-RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET')
+# =======================================================
+# Razorpay & RazorpayX Nodal Payouts (.env से ऑटोमैटिक)
+# =======================================================
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
+RAZORPAYX_ACCOUNT_NUMBER = os.getenv('RAZORPAYX_ACCOUNT_NUMBER', '')  # RazorpayX Virtual/Current Account Number
+CRON_SECRET_KEY = os.getenv('CRON_SECRET_KEY', 'ORBIS_CRON_SETTLE_2026')
