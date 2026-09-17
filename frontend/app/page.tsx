@@ -57,6 +57,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
 
   const [user, setUser] = useState<string | null>(null);
+  const [isSellerUser, setIsSellerUser] = useState(false);
   const [greeting, setGreeting] = useState('Good Day');
 
   const [cartCount, setCartCount] = useState<number>(0);
@@ -78,10 +79,13 @@ export default function HomePage() {
       setGreeting('Good Evening 🌙');
     }
 
-    const storedUser = localStorage.getItem('username');
+    const storedUser = localStorage.getItem('username') || localStorage.getItem('seller_username');
     const storedWishlist = localStorage.getItem('wishlist_items');
+    const isSeller = localStorage.getItem('is_seller') === 'true' || !!localStorage.getItem('access_token');
 
+    setIsSellerUser(isSeller);
     if (storedUser) setUser(storedUser);
+
     if (storedWishlist) {
       try {
         setWishlist(JSON.parse(storedWishlist));
@@ -102,7 +106,7 @@ export default function HomePage() {
       // ignore
     }
 
-    const token = localStorage.getItem('access_token');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     if (!token) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/cart/`, {
@@ -124,9 +128,12 @@ export default function HomePage() {
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('username');
+    localStorage.removeItem('seller_username');
+    localStorage.removeItem('is_seller');
     localStorage.removeItem('mobile');
     localStorage.removeItem('email');
     setUser(null);
+    setIsSellerUser(false);
     setCartCount(0);
     window.location.reload();
   };
@@ -251,7 +258,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20 font-sans">
-      {/* 1. शुद्ध कस्टमर-ओरिएंटेड टॉप पट्टी (सेलर पिच हटा दी गई है) */}
+      {/* 1. कस्टमर टॉप बार */}
       <div className="bg-slate-900 text-slate-200 text-xs py-1.5 px-4 font-medium border-b border-slate-800 flex items-center justify-center gap-6 overflow-x-auto whitespace-nowrap">
         <span>🚚 <b>Free Delivery</b> on orders above ₹499</span>
         <span>🔄 <b>7 Days Easy Replacement</b></span>
@@ -286,14 +293,14 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* User Navigation */}
-          <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            {/* डायनामिक सेलर बटन: लॉगिन सेलर सीधे Dashboard जाएगा, नया यूजर Register पर */}
             <Link
-              href="/seller/register"
-              className="hidden lg:flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition shadow-xs"
+              href={isSellerUser ? '/seller' : '/seller/register'}
+              className="bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white text-xs font-bold px-3 sm:px-4 py-2 rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer whitespace-nowrap"
             >
               <span>🏪</span>
-              <span>Sell on OrbisKart</span>
+              <span>{isSellerUser ? 'Seller Dashboard' : 'Sell on OrbisKart'}</span>
             </Link>
 
             {user ? (
@@ -514,7 +521,6 @@ export default function HomePage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {products.map((product) => {
-              // 2. शुद्ध इमेज URL हैंडलिंग
               const imageUrl = product.image
                 ? product.image.startsWith('http')
                   ? product.image
@@ -539,7 +545,6 @@ export default function HomePage() {
                   </button>
 
                   <Link href={`/products/${product.id}`} className="block cursor-pointer flex-1">
-                    {/* 3. इमेज कंटेनर (ओवरलैप मुक्त) */}
                     <div className="w-full h-40 sm:h-44 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative border border-gray-100">
                       {imageUrl ? (
                         <img
@@ -554,7 +559,6 @@ export default function HomePage() {
                         </div>
                       )}
 
-                      {/* फ्लोटिंग बैज (इमेज के अंदर) */}
                       <div className="absolute top-2 left-2 z-10 flex flex-col gap-1 items-start">
                         {product.category_name && (
                           <span className="bg-white/95 backdrop-blur-xs text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700 border border-gray-200">
@@ -569,7 +573,6 @@ export default function HomePage() {
                       </div>
                     </div>
 
-                    {/* प्रोडक्ट विवरण (साफ़ टेक्स्ट, कोई ओवरलैपिंग नहीं) */}
                     <div className="mb-2">
                       <h3 className="font-bold text-gray-900 text-xs sm:text-sm line-clamp-2 leading-tight group-hover:text-blue-600 transition">
                         {product.title}
@@ -577,7 +580,6 @@ export default function HomePage() {
                       <p className="text-gray-500 text-[11px] line-clamp-1 mt-1">{product.description}</p>
                     </div>
 
-                    {/* क़ीमत */}
                     <div className="flex items-baseline space-x-2 mb-3">
                       <span className="text-sm sm:text-base font-black text-gray-900">₹{product.price}</span>
                       {product.original_price && (
@@ -588,7 +590,6 @@ export default function HomePage() {
                     </div>
                   </Link>
 
-                  {/* एक्शन बटन्स */}
                   <div className="flex gap-1.5 sm:gap-2 pt-1 mt-auto">
                     <button
                       onClick={() => handleAddToCart(product, false)}
@@ -619,9 +620,12 @@ export default function HomePage() {
           <span className="text-base text-blue-600">🏠</span>
           <span className="text-[10px] font-bold text-blue-600">Home</span>
         </Link>
-        <Link href="/seller/register" className="flex flex-col items-center py-1 flex-1 text-emerald-600">
+        <Link
+          href={isSellerUser ? '/seller' : '/seller/register'}
+          className="flex flex-col items-center py-1 flex-1 text-emerald-600"
+        >
           <span className="text-base">🏪</span>
-          <span className="text-[10px] font-bold">Sell</span>
+          <span className="text-[10px] font-bold">{isSellerUser ? 'Dashboard' : 'Sell'}</span>
         </Link>
         <button onClick={() => setFilterType('trending')} className="flex flex-col items-center py-1 flex-1">
           <span className="text-base text-gray-500">🔥</span>
