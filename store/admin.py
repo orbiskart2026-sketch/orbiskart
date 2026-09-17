@@ -27,8 +27,8 @@ admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 
 
-# --- 2. Vendor Profile Admin (₹1 Penny Drop & 1-Click Verification) ---
-@admin.action(description='✅ सेलर को ₹1 बैंक ट्रायल भेजकर Approve करें (Penny Drop Verified)')
+# --- 2. Vendor Profile Admin (1-Click Approval & Document Verification) ---
+@admin.action(description='✅ सेलर को ₹1 बैंक ट्रायल के साथ Approve करें (Make Active)')
 def approve_and_verify_sellers(modeladmin, request, queryset):
     updated_count = 0
     for vendor in queryset:
@@ -38,13 +38,13 @@ def approve_and_verify_sellers(modeladmin, request, queryset):
         vendor.bank_account_verified = True
         vendor.save()
         
-        # सेलर के उत्पादों को तुरंत सक्रिय (Live) करना
+        # सेलर के सभी उत्पादों को तुरंत लाइव करना
         vendor.products.update(is_active=True)
         updated_count += 1
 
     messages.success(
         request, 
-        f"सफलतापूर्वक {updated_count} सेलर(s) को ₹1 बैंक ट्रायल के साथ Approve कर दिया गया है। इनके प्रोडक्ट्स अब लाइव हैं।"
+        f"सफलतापूर्वक {updated_count} सेलर(s) को Approve कर दिया गया है। इनके सभी उत्पाद अब लाइव हैं।"
     )
 
 
@@ -52,10 +52,11 @@ def approve_and_verify_sellers(modeladmin, request, queryset):
 class VendorProfileAdmin(admin.ModelAdmin):
     list_display = (
         'store_name', 'contact_number', 'city_district', 'state', 
-        'approval_badge', 'penny_drop_status', 'bank_account_number', 'created_at'
+        'approval_badge', 'penny_drop_status', 'bank_account_number', 'wallet_balance', 'created_at'
     )
     list_filter = ('is_approved', 'penny_drop_verified', 'state', 'bank_account_verified')
-    search_fields = ('store_name', 'contact_number', 'business_email', 'pan_number', 'gstin', 'msme_number')
+    search_fields = ('store_name', 'contact_number', 'business_email', 'pan_number', 'gstin', 'msme_number', 'bank_account_number')
+    list_editable = ('is_approved', 'penny_drop_verified')
     actions = [approve_and_verify_sellers]
     
     fieldsets = (
@@ -85,89 +86,120 @@ class VendorProfileAdmin(admin.ModelAdmin):
 
     def approval_badge(self, obj):
         if obj.is_approved:
-            return format_html('<span style="color:green; font-weight:bold;">✔ Approved</span>')
-        return format_html('<span style="color:orange; font-weight:bold;">⏳ Pending</span>')
+            return format_html('<span style="color:#10B981; font-weight:bold;">✔ Approved</span>')
+        return format_html('<span style="color:#F59E0B; font-weight:bold;">⏳ Pending</span>')
     approval_badge.short_description = 'Approval Status'
 
     def penny_drop_status(self, obj):
         if obj.penny_drop_verified:
-            return format_html('<span style="color:green;">₹1 Verified ({})</span>', obj.penny_drop_utr or 'Sent')
-        return format_html('<span style="color:red; font-weight:bold;">₹1 Pending</span>')
+            return format_html('<span style="color:#10B981; font-weight:bold;">✔ Verified ({})</span>', obj.penny_drop_utr or 'Sent')
+        return format_html('<span style="color:#EF4444; font-weight:bold;">⏳ Pending</span>')
     penny_drop_status.short_description = '₹1 Penny Drop'
 
 
-# --- 3. Product Images Inline & Product Admin ---
+# --- 3. Product Gallery Images Inline (With Preview) ---
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
-    extra = 3
+    extra = 1
+    readonly_fields = ('preview_thumbnail',)
+
+    def preview_thumbnail(self, instance):
+        if instance.image:
+            return format_html('<img src="{}" style="height: 50px; width: 50px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd;" />', instance.image.url)
+        return "No Image"
+    preview_thumbnail.short_description = "प्रिव्यू"
 
 
+# --- 4. Product Admin (Fixed Visibility & Weight Freeze Display) ---
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('title', 'vendor', 'category', 'price', 'weight_grams', 'hsn_code', 'gst_rate', 'stock', 'is_active')
-    list_filter = ('is_active', 'category', 'gst_rate', 'vendor')
-    search_fields = ('title', 'hsn_code', 'vendor__store_name')
+    list_display = (
+        'id', 'thumbnail_preview', 'title', 'vendor_name', 'price', 
+        'weight_grams', 'weight_freeze_badge', 'stock', 'is_active', 'created_at'
+    )
+    list_filter = ('is_active', 'is_weight_frozen', 'category', 'created_at')
+    search_fields = ('id', 'title', 'description', 'vendor__store_name', 'hsn_code')
+    list_editable = ('is_active', 'price', 'stock')
     inlines = [ProductImageInline]
 
+    fieldsets = (
+        ('मूल विवरण (Basic Info)', {
+            'fields': ('seller', 'vendor', 'category', 'category_policy', 'title', 'description', 'price', 'original_price', 'stock', 'is_active')
+        }),
+        ('वज़न एवं Weight Freeze सुरक्षा', {
+            'fields': ('weight_grams', 'package_length_cm', 'package_width_cm', 'package_height_cm', 'package_photo', 'is_weight_frozen')
+        }),
+        ('मीडिया (फ़ोटो एवं वीडियो)', {
+            'fields': ('image', 'video')
+        }),
+        ('टैक्स व HSN कोड', {
+            'fields': ('hsn_code', 'gst_rate')
+        }),
+    )
+
+    def thumbnail_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" style="width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc;" />', obj.image.url)
+        return "📷 No Img"
+    thumbnail_preview.short_description = "फ़ोटो"
+
+    def vendor_name(self, obj):
+        return obj.vendor.store_name if obj.vendor else "Direct Admin"
+    vendor_name.short_description = "दुकान / सेलर"
+
+    def weight_freeze_badge(self, obj):
+        if obj.is_weight_frozen:
+            return format_html('<span style="color:#10B981; font-weight:bold;">🔒 {}g ({}x{}x{})</span>', obj.weight_grams, obj.package_length_cm, obj.package_width_cm, obj.package_height_cm)
+        return format_html('<span style="color:#EF4444;">Unfrozen</span>')
+    weight_freeze_badge.short_description = "Weight Freeze"
+
+    # सभी सुपरयूजर और स्टाफ यूज़र को सारे प्रोडक्ट्स बिना रुकावट दिखाना
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.role == 'ADMIN'):
+        if request.user.is_superuser or request.user.is_staff:
             return qs
         if hasattr(request.user, 'vendor_profile'):
             return qs.filter(vendor=request.user.vendor_profile)
-        return qs.none()
-
-    def save_model(self, request, obj, form, change):
-        if not obj.vendor and hasattr(request.user, 'vendor_profile'):
-            obj.vendor = request.user.vendor_profile
-        super().save_model(request, obj, form, change)
+        return qs
 
 
-# --- 4. Order Item Admin (Complete Transparency Ledger) ---
-@admin.register(OrderItem)
-class OrderItemAdmin(admin.ModelAdmin):
+# --- 5. Order Item Inline & Order Admin ---
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 0
+    readonly_fields = ('product', 'vendor', 'price', 'quantity', 'vendor_payout')
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'order', 'product', 'vendor', 'hsn_code', 'price', 
-        'taxable_product_value', 'product_gst_amount', 
-        'platform_commission', 'payment_gateway_fee', 
-        'shipping_and_return_fee', 'gst_on_platform_fee', 
-        'total_deductions', 'vendor_payout'
+        'id', 'user', 'total_price', 'delivery_fee', 'payment_method', 
+        'status', 'delivery_otp', 'courier_partner', 'created_at'
     )
-    list_filter = ('vendor', 'product_gst_rate')
-    readonly_fields = (
-        'hsn_code', 'product_gst_rate', 'taxable_product_value', 
-        'product_gst_amount', 'platform_commission', 
-        'payment_gateway_fee', 'shipping_and_return_fee', 
-        'gst_on_platform_fee', 'total_deductions', 'vendor_payout', 
-        'commission_rate'
-    )
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.role == 'ADMIN'):
-            return qs
-        if hasattr(request.user, 'vendor_profile'):
-            return qs.filter(vendor=request.user.vendor_profile)
-        return qs.none()
-
-
-# --- 5. Order Shipping Reconciliation Admin ---
-@admin.register(OrderShippingReconciliation)
-class OrderShippingReconciliationAdmin(admin.ModelAdmin):
-    list_display = ('order', 'courier_partner', 'awb_number', 'estimated_charge', 'actual_billed_charge', 'is_discrepancy', 'status')
-    list_filter = ('status', 'courier_partner', 'is_discrepancy')
-    search_fields = ('awb_number', 'order__id')
+    list_filter = ('status', 'payment_method', 'courier_partner')
+    search_fields = ('id', 'user__username', 'shipping_address', 'awb_number')
+    inlines = [OrderItemInline]
 
 
 # --- 6. Seller Deduction Slip Admin ---
 @admin.register(SellerDeductionSlip)
 class SellerDeductionSlipAdmin(admin.ModelAdmin):
-    list_display = ('slip_number', 'vendor', 'order', 'gross_order_amount', 'courier_charge', 'platform_and_pg_fee', 'final_settlement_amount', 'is_settled_to_bank')
+    list_display = (
+        'slip_number', 'vendor', 'order', 'gross_order_amount', 
+        'courier_charge', 'platform_and_pg_fee', 'final_settlement_amount', 'is_settled_to_bank'
+    )
     list_filter = ('is_settled_to_bank', 'vendor')
     search_fields = ('slip_number', 'settlement_reference_utr')
 
 
-# --- 7. Immutable Master Transaction Admin ---
+# --- 7. Multi-Courier Shipping Rate Card Admin ---
+@admin.register(ShippingRateCard)
+class ShippingRateCardAdmin(admin.ModelAdmin):
+    list_display = ('courier_partner', 'zone', 'max_weight_grams', 'forward_charge', 'per_additional_500g', 'rto_charge', 'is_active')
+    list_filter = ('courier_partner', 'zone', 'is_active')
+
+
+# --- 8. Immutable Master Transaction Admin ---
 @admin.register(ImmutableMasterTransaction)
 class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
     list_display = ('tx_id', 'service_type', 'gross_amount', 'gateway_fee', 'platform_commission', 'net_payout', 'status', 'created_at')
@@ -179,27 +211,21 @@ class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
         return False  # कानूनी ऑडिट सुरक्षा
 
 
-# --- 8. Core Policies, HSN & Categories ---
-@admin.register(CategoryPolicy)
-class CategoryPolicyAdmin(admin.ModelAdmin):
-    list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
-
-
-@admin.register(ShippingRateCard)
-class ShippingRateCardAdmin(admin.ModelAdmin):
-    list_display = ('courier_partner', 'zone', 'max_weight_grams', 'forward_charge', 'per_additional_500g', 'rto_charge', 'is_active')
-    list_filter = ('courier_partner', 'zone', 'is_active')
-
-
+# --- 9. Govt HSN & Policies Admin ---
 @admin.register(GovtHSNMaster)
 class GovtHSNMasterAdmin(admin.ModelAdmin):
     list_display = ('hsn_code', 'description', 'gst_rate', 'cess_rate', 'last_updated_gov')
     search_fields = ('hsn_code', 'description')
 
 
-# --- 9. Remaining Core Models ---
+@admin.register(CategoryPolicy)
+class CategoryPolicyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
+
+
+# --- 10. Remaining Models ---
 admin.site.register(Category)
-admin.site.register(Order)
 admin.site.register(Cart)
 admin.site.register(CartItem)
 admin.site.register(Review)
+admin.site.register(OrderShippingReconciliation)
