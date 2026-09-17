@@ -125,7 +125,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (Zero Blocking Fallback)
+  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप भी कर सकते हैं)
   const verifyAndFetchAccountHolder = async () => {
     if (!form.bank_account_number || !form.confirm_account_number) {
       alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
@@ -153,35 +153,33 @@ export default function SellerRegisterPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        const fetchedName = data.registered_name || form.owner_name || 'Verified Beneficiary';
+        const fetchedName = data.registered_name || form.bank_account_name || form.owner_name || 'Verified Beneficiary';
         setForm((prev) => ({
           ...prev,
           bank_account_name: fetchedName,
           bank_name: data.bank_name || prev.bank_name || 'Verified Bank',
         }));
         setAccountVerified(true);
-        alert(`✔ बैंक खाता दर्ज हुआ! विवरण: ${fetchedName}`);
+        alert(`✔ बैंक खाता विवरण प्राप्त हुआ: ${fetchedName}`);
       } else {
-        // अगर RazorpayX पेंडिंग हो, तो भी सेलर को न रोकें
-        const fallbackName = form.owner_name || 'Bank Account Registered';
+        const fallbackName = form.bank_account_name || form.owner_name || 'Bank Account Registered';
         setForm((prev) => ({
           ...prev,
           bank_account_name: fallbackName,
           bank_name: prev.bank_name || 'State Bank of India',
         }));
         setAccountVerified(true);
-        alert(`✔ बैंक शाखा व खाता दर्ज हुआ (${fallbackName})। एडमिन सत्यापन के लिए फ़ॉर्म सबमिट करें।`);
+        alert(`✔ खाता विवरण दर्ज (${fallbackName})। एडमिन सत्यापन के लिए फ़ॉर्म सबमिट करें।`);
       }
     } catch {
-      // नेटवर्क या टाइमआउट होने पर भी सेलर को बिना एरर आगे बढ़ने दें
-      const fallbackName = form.owner_name || 'Bank Account Registered';
+      const fallbackName = form.bank_account_name || form.owner_name || 'Bank Account Registered';
       setForm((prev) => ({
         ...prev,
         bank_account_name: fallbackName,
         bank_name: prev.bank_name || 'State Bank of India',
       }));
       setAccountVerified(true);
-      alert(`✔ बैंक खाता दर्ज हुआ (${fallbackName})। कृपया फ़ॉर्म सबमिट करें।`);
+      alert(`✔ खाता विवरण दर्ज (${fallbackName})। कृपया फ़ॉर्म सबमिट करें।`);
     } finally {
       setBankVerifying(false);
     }
@@ -206,7 +204,6 @@ export default function SellerRegisterPage() {
       return;
     }
 
-    // अगर यूजर ने फेच बटन नहीं दबाया तो स्वतः मालिक का नाम भरें
     const finalAccountName = form.bank_account_name || form.owner_name;
 
     setLoading(true);
@@ -495,7 +492,7 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग, IFSC व खाता सत्यापन (Smart Verified) */}
+          {/* सेक्शन 3: बैंकिंग, IFSC व खाता सत्यापन */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
@@ -572,18 +569,19 @@ export default function SellerRegisterPage() {
                 )}
               </div>
 
-              {/* खाताधारक नाम और ऑटो-फ़ेच बटन */}
+              {/* खाताधारक नाम: अब खुला है, आप सीधे नाम टाइप भी कर सकते हैं */}
               <div className="md:col-span-2 flex flex-col sm:flex-row gap-3 items-end">
                 <div className="flex-1 w-full">
                   <label className="block text-slate-300 mb-1">
-                    खाते में दर्ज नाम (Beneficiary Name) * {accountVerified && <span className="text-emerald-400 font-bold">✔ सत्यापित</span>}
+                    खाते में दर्ज नाम (Beneficiary Name) * {accountVerified && <span className="text-emerald-400 font-bold">✔ दर्ज हुआ</span>}
                   </label>
                   <input
                     type="text"
-                    readOnly
-                    value={form.bank_account_name || form.owner_name || 'खाताधारक विवरण दर्ज'}
-                    placeholder="नीचे 'बैंक नाम ऑटो-फ़ेच करें' बटन दबाएँ"
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-emerald-400 font-bold tracking-wide cursor-not-allowed"
+                    required
+                    value={form.bank_account_name}
+                    onChange={(e) => setForm({ ...form, bank_account_name: e.target.value })}
+                    placeholder="पासबुक के अनुसार खाताधारक का नाम यहाँ टाइप करें..."
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wide focus:border-indigo-400 focus:outline-none"
                   />
                 </div>
 
