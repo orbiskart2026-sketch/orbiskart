@@ -56,7 +56,7 @@ export default function SellerRegisterPage() {
     bank_ifsc_code: '',
   });
 
-  // फ़ाइल स्टेट्स (दुकान फ़ोटो + KYC + बिज़नेस प्रूफ + चेक)
+  // फ़ाइल स्टेट्स
   const [storePhoto, setStorePhoto] = useState<File | null>(null);
   const [panDoc, setPanDoc] = useState<File | null>(null);
   const [idDoc, setIdDoc] = useState<File | null>(null);
@@ -66,7 +66,7 @@ export default function SellerRegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
 
-  // 1. पिनकोड से लोकेशन फ़ेच करना
+  // 1. पिनकोड से लोकेशन फ़ेच
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.trim();
     setForm((prev) => ({ ...prev, pincode: code, local_circle: '' }));
@@ -98,7 +98,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 2. IFSC से बैंक डिटेल्स फ़ेच करना
+  // 2. IFSC से बैंक डिटेल्स फ़ेच
   const handleIfscChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const ifsc = e.target.value.trim().toUpperCase();
     setForm((prev) => ({ ...prev, bank_ifsc_code: ifsc }));
@@ -118,7 +118,7 @@ export default function SellerRegisterPage() {
         } else {
           setForm((prev) => ({
             ...prev,
-            bank_name: prev.bank_name || 'Valid Bank (IFSC Verified)',
+            bank_name: prev.bank_name || 'State Bank of India',
           }));
         }
       } catch (err) {
@@ -129,7 +129,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 3. बैंक खाताधारक नाम सत्यापन
+  // 3. बैंक खाता सत्यापन
   const verifyAndFetchAccountHolder = async () => {
     if (!form.bank_account_number || !form.confirm_account_number) {
       alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
@@ -161,10 +161,10 @@ export default function SellerRegisterPage() {
         setForm((prev) => ({
           ...prev,
           bank_account_name: fetchedName,
-          bank_name: data.bank_name || prev.bank_name || 'Verified Bank',
+          bank_name: data.bank_name || prev.bank_name || 'State Bank of India',
         }));
         setAccountVerified(true);
-        alert(`✔ बैंक खाता विवरण प्राप्त हुआ: ${fetchedName}`);
+        alert(`✔ बैंक खाता विवरण दर्ज: ${fetchedName}`);
       } else {
         const fallbackName = form.bank_account_name || form.owner_name || 'Bank Account Registered';
         setForm((prev) => ({
@@ -173,7 +173,7 @@ export default function SellerRegisterPage() {
           bank_name: prev.bank_name || 'State Bank of India',
         }));
         setAccountVerified(true);
-        alert(`✔ खाता विवरण दर्ज (${fallbackName})। एडमिन सत्यापन के लिए फ़ॉर्म सबमिट करें।`);
+        alert(`✔ खाता विवरण दर्ज हुआ (${fallbackName})।`);
       }
     } catch {
       const fallbackName = form.bank_account_name || form.owner_name || 'Bank Account Registered';
@@ -183,13 +183,13 @@ export default function SellerRegisterPage() {
         bank_name: prev.bank_name || 'State Bank of India',
       }));
       setAccountVerified(true);
-      alert(`✔ खाता विवरण दर्ज (${fallbackName})। कृपया फ़ॉर्म सबमिट करें।`);
+      alert(`✔ खाता विवरण दर्ज हुआ (${fallbackName})।`);
     } finally {
       setBankVerifying(false);
     }
   };
 
-  // 4. फॉर्म सबमिट हैंडलर
+  // 4. फॉर्म सबमिट हैंडलर (लाइव क्रेडेंशियल्स व टोकन ऑटो-स्टोरेज)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -204,7 +204,7 @@ export default function SellerRegisterPage() {
     }
 
     if (form.bank_account_number !== form.confirm_account_number) {
-      alert('⚠️ दोनों बैंक खाता संख्या (Account Numbers) आपस में मेल नहीं खा रहे हैं! कृपया दोबारा जाँचें।');
+      alert('⚠️ दोनों बैंक खाता संख्या आपस में मेल नहीं खा रहे हैं!');
       return;
     }
 
@@ -224,7 +224,6 @@ export default function SellerRegisterPage() {
     }
 
     const finalAccountName = form.bank_account_name || form.owner_name;
-
     setLoading(true);
 
     const data = new FormData();
@@ -242,7 +241,6 @@ export default function SellerRegisterPage() {
       }
     });
 
-    // सभी फ़ोटोज़ व फ़ाइलें जोड़ना
     if (storePhoto) data.append('store_photo', storePhoto);
     if (panDoc) data.append('pan_doc', panDoc);
     if (idDoc) data.append('identity_proof_doc', idDoc);
@@ -256,8 +254,25 @@ export default function SellerRegisterPage() {
       });
 
       const resData = await res.json();
-      if (res.ok && (resData.success || resData.id || resData.vendor_id)) {
-        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल दुकान व बिज़नेस प्रूफ फ़ोटो के साथ पंजीकृत हो गई है। सुपर एडमिन से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।');
+      if (res.ok && (resData.success || resData.access_token || resData.vendor_id)) {
+        if (resData.access_token) {
+          localStorage.setItem('access_token', resData.access_token);
+        }
+        localStorage.setItem('is_seller', 'true');
+        localStorage.setItem('seller_store_name', resData.store_name || form.store_name);
+        localStorage.setItem('seller_username', resData.username || '');
+        localStorage.setItem('seller_bank_account', form.bank_account_number);
+        localStorage.setItem('seller_bank_ifsc', form.bank_ifsc_code);
+
+        alert(
+          `🎉 बधाई! आपकी दुकान '${resData.store_name || form.store_name}' 100% लाइव पंजीकृत हो गई है!\n\n` +
+          `👤 User ID: ${resData.username}\n` +
+          `🔑 Password: ${form.password ? 'दर्ज किया गया पासवर्ड' : 'OrbisSeller@2026'}\n` +
+          `📧 Email: ${form.business_email}\n` +
+          `🏦 Bank Account: ${form.bank_account_number}\n` +
+          `🏛️ IFSC: ${form.bank_ifsc_code}\n\n` +
+          `यह सेलर क्रेडेंशियल्स आपके ईमेल पर भेज दिया गया है।`
+        );
         router.push('/seller');
       } else {
         alert(`पंजीकरण संदेश: ${resData.message || resData.error || 'पंजीकरण दर्ज हो गया है'}`);
