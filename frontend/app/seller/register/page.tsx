@@ -56,6 +56,8 @@ export default function SellerRegisterPage() {
     bank_ifsc_code: '',
   });
 
+  // फ़ाइल स्टेट्स (दुकान फ़ोटो + KYC + बिज़नेस प्रूफ + चेक)
+  const [storePhoto, setStorePhoto] = useState<File | null>(null);
   const [panDoc, setPanDoc] = useState<File | null>(null);
   const [idDoc, setIdDoc] = useState<File | null>(null);
   const [businessDoc, setBusinessDoc] = useState<File | null>(null);
@@ -64,7 +66,7 @@ export default function SellerRegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
 
-  // 1. पिनकोड डालते ही लोकेशन व लोकल सर्कल फ़ेच करना
+  // 1. पिनकोड से लोकेशन फ़ेच करना
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const code = e.target.value.trim();
     setForm((prev) => ({ ...prev, pincode: code, local_circle: '' }));
@@ -96,7 +98,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 2. IFSC कोड डालते ही बैंक का नाम, ब्रांच और एड्रेस ऑटो-फ़ेच करना
+  // 2. IFSC से बैंक डिटेल्स फ़ेच करना
   const handleIfscChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const ifsc = e.target.value.trim().toUpperCase();
     setForm((prev) => ({ ...prev, bank_ifsc_code: ifsc }));
@@ -127,7 +129,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप करने व ऑटो-फ़ेच दोनों के लिए खुला)
+  // 3. बैंक खाताधारक नाम सत्यापन
   const verifyAndFetchAccountHolder = async () => {
     if (!form.bank_account_number || !form.confirm_account_number) {
       alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
@@ -240,6 +242,8 @@ export default function SellerRegisterPage() {
       }
     });
 
+    // सभी फ़ोटोज़ व फ़ाइलें जोड़ना
+    if (storePhoto) data.append('store_photo', storePhoto);
     if (panDoc) data.append('pan_doc', panDoc);
     if (idDoc) data.append('identity_proof_doc', idDoc);
     if (businessDoc) data.append('business_proof_doc', businessDoc);
@@ -253,7 +257,7 @@ export default function SellerRegisterPage() {
 
       const resData = await res.json();
       if (res.ok && (resData.success || resData.id || resData.vendor_id)) {
-        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। सुपर एडमिन से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।');
+        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल दुकान व बिज़नेस प्रूफ फ़ोटो के साथ पंजीकृत हो गई है। सुपर एडमिन से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।');
         router.push('/seller');
       } else {
         alert(`पंजीकरण संदेश: ${resData.message || resData.error || 'पंजीकरण दर्ज हो गया है'}`);
@@ -275,7 +279,7 @@ export default function SellerRegisterPage() {
               OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, IFSC ऑटो-बैंक फ़ेच, पासवर्ड निर्माण और सुरक्षित बैंक सत्यापन।
+              दुकान फ़ोटो (अंदर/बाहर), बिज़नेस प्रूफ, IFSC ऑटो-बैंक फ़ेच, पासवर्ड और ₹1 बैंक ट्रायल सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -284,11 +288,11 @@ export default function SellerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-          {/* सेक्शन 1: दुकान, क्रेडेंशियल व लोकेशन */}
+          {/* सेक्शन 1: दुकान, क्रेडेंशियल, फ़ोटो व लोकेशन */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (लॉगिन क्रेडेंशियल्स के साथ)
+              दुकान व विक्रेता विवरण (दुकान फ़ोटो व लॉगिन पासवर्ड सहित)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -313,6 +317,28 @@ export default function SellerRegisterPage() {
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
+
+              {/* दुकान का बोर्ड / बाहर व अंदर की फ़ोटो */}
+              <div className="md:col-span-2 bg-indigo-950/20 border border-indigo-500/30 p-4 rounded-2xl">
+                <label className="block text-indigo-300 font-bold mb-1">
+                  🏪 दुकान का बोर्ड / बाहर व अंदर की मुख्य फ़ोटो (Store Photo) *
+                </label>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  अपनी दुकान के मुख्य बोर्ड या अंदर/बाहर की साफ़ फ़ोटो चुनें (यह सुपर एडमिन और स्टोरफ़्रंट पर दिखेगी)।
+                </p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => e.target.files && setStorePhoto(e.target.files[0])}
+                  className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-4 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
+                />
+                {storePhoto && (
+                  <span className="text-[11px] text-emerald-400 font-bold mt-1.5 block">
+                    ✔ दुकान की फ़ोटो चुनी गई: {storePhoto.name}
+                  </span>
+                )}
+              </div>
+
               <div>
                 <label className="block text-slate-300 mb-1">मोबाइल नंबर *</label>
                 <input
@@ -457,11 +483,11 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व पहचान दस्तावेज */}
+          {/* सेक्शन 2: टैक्स, पहचान व बिज़नेस प्रूफ प्रमाणपत्र */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
-              टैक्स, पहचान व सरकारी पंजीकरण (GST / MSME / पहचान दस्तावेज)
+              टैक्स, पहचान व बिज़नेस प्रूफ सरकारी पंजीकरण (GST / MSME)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -498,7 +524,7 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 mb-1">पहचान पत्र संख्या (Govt ID / Voter / Passport) *</label>
+                <label className="block text-slate-300 mb-1">पहचान पत्र संख्या (Govt ID / पहचान संख्या) *</label>
                 <input
                   type="text"
                   required
@@ -529,16 +555,26 @@ export default function SellerRegisterPage() {
                   className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1">
-                  दुकान / बिज़नेस प्रमाणपत्र (GST / Udyam MSME / Trade License / Gumasta Copy)
+
+              {/* बिज़नेस प्रूफ प्रमाणपत्र अपलोड */}
+              <div className="md:col-span-2 bg-slate-950 p-4 rounded-2xl border border-indigo-500/40">
+                <label className="block text-white font-bold mb-1">
+                  📄 बिज़नेस प्रमाण-पत्र (Business Proof Doc - Udyam MSME / GST / Trade License)
                 </label>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  अपनी दुकान का Udyam पंजीकरण या GST सर्टिफिकेट (फ़ोटो या PDF) चुनें ताकि एडमिन में <b>Business proof doc</b> सीधा दिखे।
+                </p>
                 <input
                   type="file"
                   accept="image/*,.pdf"
                   onChange={(e) => e.target.files && setBusinessDoc(e.target.files[0])}
-                  className="w-full text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
+                  className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-4 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
                 />
+                {businessDoc && (
+                  <span className="text-[11px] text-emerald-400 font-bold mt-1.5 block">
+                    ✔ बिज़नेस प्रूफ चुना गया: {businessDoc.name}
+                  </span>
+                )}
               </div>
             </div>
           </div>

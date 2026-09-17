@@ -969,7 +969,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Complete Seller Onboarding & KYC API (User + VendorProfile दोनों तुरंत डेटाबेस में) ---
+# --- 15. Complete Seller Onboarding & KYC API ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -989,7 +989,7 @@ class SellerRegisterAPIView(APIView):
             username = business_email.split('@')[0] if business_email else f"seller_{contact_number[-4:]}"
 
             with transaction.atomic():
-                # 1. असली Django User तैयार करना
+                # 1. Django User बनाना/अपडेट करना
                 user = User.objects.filter(username=username).first()
                 if not user and business_email:
                     user = User.objects.filter(email=business_email).first()
@@ -1007,7 +1007,7 @@ class SellerRegisterAPIView(APIView):
                     user.first_name = owner_name
                     user.save()
 
-                # 2. सुपर एडमिन के लिए VendorProfile तैयार करना
+                # 2. सुपर एडमिन के लिए VendorProfile रिकॉर्ड बनाना
                 profile, _ = VendorProfile.objects.get_or_create(user=user)
 
                 profile.store_name = store_name
@@ -1028,7 +1028,9 @@ class SellerRegisterAPIView(APIView):
                 profile.bank_account_number = data.get('bank_account_number', '').strip()
                 profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
 
-                # दस्तावेज़ अपलोड सुरक्षित सेव करना
+                # दुकान की फ़ोटो व सभी दस्तावेज़ सुरक्षित सहेजना
+                if 'store_photo' in request.FILES:
+                    profile.store_photo = request.FILES['store_photo']
                 if 'pan_doc' in request.FILES:
                     profile.pan_doc = request.FILES['pan_doc']
                 if 'identity_proof_doc' in request.FILES:
@@ -1045,7 +1047,7 @@ class SellerRegisterAPIView(APIView):
 
             return Response({
                 'success': True,
-                'message': 'सेलर प्रोफ़ाइल पंजीकृत हो चुकी है! Django Admin में Users और Vendor Profiles दोनों जगह यह रिकॉर्ड उपलब्ध है।',
+                'message': 'सेलर प्रोफ़ाइल दुकान की फ़ोटो व बिज़नेस प्रूफ के साथ सफलतापूर्वक पंजीकृत हो गई है!',
                 'user_id': user.id,
                 'username': user.username,
                 'vendor_id': str(profile.id),
@@ -1055,7 +1057,6 @@ class SellerRegisterAPIView(APIView):
 
         except Exception as e:
             return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 # --- 16. Seller Profile, Address & Bank Self-Service Update API ---
 class SellerProfileUpdateAPIView(APIView):
