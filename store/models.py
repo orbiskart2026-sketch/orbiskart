@@ -44,7 +44,7 @@ class VendorProfile(models.Model):
     pan_number = models.CharField(max_length=10, blank=True, null=True)
     id_proof_number = models.CharField(max_length=50, blank=True, null=True)
 
-    # सुरक्षित डाक्यूमेंट्स (PDF / फ़ोटो)
+    # सुरक्षित दस्तावेज़ (KYC & Business Proof)
     pan_doc = models.FileField(upload_to='seller_kyc/pan/', null=True, blank=True)
     identity_proof_doc = models.FileField(upload_to='seller_kyc/identity/', null=True, blank=True)
     business_proof_doc = models.FileField(upload_to='seller_kyc/business/', null=True, blank=True)
@@ -140,7 +140,7 @@ class ShippingRateCard(models.Model):
         return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
 
 
-# --- 6. Transparent Product Model (Protected against Unapproved Sellers) ---
+# --- 6. Transparent Product Model (Weight Freeze & Protected against Fake Charges) ---
 class Product(models.Model):
     vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
@@ -162,11 +162,18 @@ class Product(models.Model):
     weight_grams = models.IntegerField(default=300)
     stock = models.IntegerField(default=10)
 
+    # --- वास्तविक Weight Freeze Engine (कूरियर मनमाना बिल नहीं कर सकता) ---
+    package_length_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('10.00'))
+    package_width_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('10.00'))
+    package_height_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('5.00'))
+    package_photo = models.ImageField(upload_to='weight_freeze_docs/', null=True, blank=True)
+    is_weight_frozen = models.BooleanField(default=True)
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def save(self, *args, **kwargs):
-        # सेलर जब तक ₹1 ट्रायल मनी से अप्रूव नहीं होगा, प्रोडक्ट लाइव नहीं हो सकता
+        # सेलर जब तक ₹1 ट्रायल मनी से अप्रूव नहीं होगा, उसका प्रोडक्ट लाइव नहीं हो सकता
         if self.vendor and not self.vendor.is_approved:
             self.is_active = False
 
@@ -259,7 +266,7 @@ class CartItem(models.Model):
         return f"{self.quantity} x {self.product.title}"
 
 
-# --- 8. Order Model ---
+# --- 8. Order Model (2-Way OTP, Weight Audit & T+3 Settlement Guarantee) ---
 class Order(models.Model):
     PAYMENT_CHOICES = [
         ('COD', 'Cash on Delivery'),
@@ -297,8 +304,14 @@ class Order(models.Model):
     awb_number = models.CharField(max_length=100, blank=True, null=True)
     live_tracking_url = models.URLField(max_length=500, blank=True, null=True)
 
+    # फ्रॉड रोकथाम: 2-Way OTP सुरक्षा
     delivery_otp = models.CharField(max_length=6, blank=True, null=True)
     return_otp = models.CharField(max_length=6, blank=True, null=True)
+
+    # स्वचालित T+3 सेटलमेंट ट्रैकिंग
+    settlement_due_date = models.DateTimeField(null=True, blank=True)
+    is_settled_to_vendor = models.BooleanField(default=False)
+    vendor_utr = models.CharField(max_length=100, null=True, blank=True)
 
     it_call_no = models.CharField(max_length=20, default='+91-1800-889-2026')
     support_reference_no = models.CharField(max_length=50, blank=True, null=True)

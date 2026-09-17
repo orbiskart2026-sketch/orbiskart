@@ -17,9 +17,10 @@ from .views import (
     VerifyRazorpayPaymentView,
     UtilityBillEngineView,
     CentralEcoMasterLedgerView,
-    SellerRegisterAPIView,        # 100% सुरक्षित KYC ऑनबोर्डिंग
-    SellerProfileUpdateAPIView,   # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
-    VerifyBankAccountAPIView,     # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
+    SellerRegisterAPIView,               # 100% सुरक्षित KYC ऑनबोर्डिंग
+    SellerProfileUpdateAPIView,          # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
+    VerifyBankAccountAPIView,            # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
+    DownloadSellerDeductionSlipPDFView,  # 1-क्लिक सेलर डिडक्शन स्लिप PDF इंजन
 )
 
 urlpatterns = [
@@ -42,6 +43,7 @@ urlpatterns = [
     path('orders/create/', CreateOrderView.as_view(), name='order-create'),
     path('orders/<int:order_id>/verify-otp/', VerifyOrderOTPView.as_view(), name='verify-otp'),
     path('orders/<int:order_id>/invoice/', DownloadInvoicePDFView.as_view(), name='download-invoice'),
+    path('orders/<int:order_id>/seller-slip/', DownloadSellerDeductionSlipPDFView.as_view(), name='seller-deduction-slip'),
 
     # 5. Seller Hub, KYC Transparency & Bank Verification
     path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='seller-dashboard'),

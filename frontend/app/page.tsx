@@ -18,6 +18,8 @@ interface Product {
   image: string | null;
   stock: number;
   category_name?: string;
+  weight_grams?: number;
+  is_weight_frozen?: boolean;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
@@ -55,8 +57,6 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
 
   const [user, setUser] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
-  const [mobile, setMobile] = useState<string | null>(null);
   const [greeting, setGreeting] = useState('Good Day');
 
   const [cartCount, setCartCount] = useState<number>(0);
@@ -79,13 +79,9 @@ export default function HomePage() {
     }
 
     const storedUser = localStorage.getItem('username');
-    const storedEmail = localStorage.getItem('email');
-    const storedMobile = localStorage.getItem('mobile') || localStorage.getItem('phone');
     const storedWishlist = localStorage.getItem('wishlist_items');
 
     if (storedUser) setUser(storedUser);
-    if (storedEmail) setEmail(storedEmail);
-    if (storedMobile) setMobile(storedMobile);
     if (storedWishlist) {
       try {
         setWishlist(JSON.parse(storedWishlist));
@@ -131,8 +127,6 @@ export default function HomePage() {
     localStorage.removeItem('mobile');
     localStorage.removeItem('email');
     setUser(null);
-    setEmail(null);
-    setMobile(null);
     setCartCount(0);
     window.location.reload();
   };
@@ -257,6 +251,14 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20 font-sans">
+      {/* Top Transparency Banner */}
+      <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 text-center font-medium border-b border-slate-800 flex items-center justify-center gap-4 flex-wrap">
+        <span>🛡️ <b>100% Transparency:</b> Zero Hidden Cuts</span>
+        <span>⚖️ <b>Weight Freeze Guarantee:</b> No Fake Weight Penalties</span>
+        <span>📑 <b>GST Invoicing Included</b></span>
+        <span>⚡ <b>T+3 Fast Settlement</b></span>
+      </div>
+
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-50 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
@@ -268,10 +270,10 @@ export default function HomePage() {
           <div className="flex-1 max-w-lg relative">
             <input
               type="text"
-              placeholder="Search sarees, suits, jewellery, fashion, electronics..."
+              placeholder="सर्च करें साड़ियाँ, कपड़े, इलेक्ट्रॉनिक्स, घरेलू सामान..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-7 py-1.5 sm:py-2 border border-gray-300 rounded-full text-xs sm:text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-7 py-1.5 sm:py-2 border border-gray-300 rounded-full text-xs sm:text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
             />
             <span className="absolute left-3 top-2 sm:top-2.5 text-gray-400 text-xs sm:text-sm">🔍</span>
             {search && (
@@ -284,15 +286,14 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* User Nav */}
+          {/* User Navigation */}
           <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
-            {/* Become a Seller Button */}
             <Link
               href="/seller/register"
-              className="hidden lg:flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100 transition"
+              className="hidden lg:flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition shadow-xs"
             >
               <span>🏪</span>
-              <span>Sell on Orbis</span>
+              <span>Sell on OrbisKart</span>
             </Link>
 
             {user ? (
@@ -320,7 +321,7 @@ export default function HomePage() {
 
             <Link
               href="/cart"
-              className="relative flex items-center gap-1 text-xs sm:text-sm font-bold bg-blue-600 text-white px-3 py-1.5 rounded-lg shadow-xs hover:bg-blue-700 transition"
+              className="relative flex items-center gap-1 text-xs sm:text-sm font-bold bg-blue-600 text-white px-3 py-1.5 rounded-lg shadow-xs hover:bg-blue-700 transition cursor-pointer"
             >
               <span>🛒</span>
               <span className="hidden sm:inline">Cart</span>
@@ -333,7 +334,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Categories Bar */}
+        {/* Top Horizontal Categories Bar */}
         <div className="bg-white border-t border-gray-100 relative">
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
             <button
@@ -496,7 +497,9 @@ export default function HomePage() {
         </div>
 
         {loading ? (
-          <div className="text-center py-20 text-gray-400 font-bold">Loading deals...</div>
+          <div className="text-center py-20 text-gray-400 font-bold animate-pulse">
+            📦 लोड हो रहा है पारदर्शी कैटलॉग...
+          </div>
         ) : products.length === 0 ? (
           <div className="bg-white border rounded-2xl p-12 text-center shadow-sm">
             <span className="text-4xl block mb-2">🔍</span>
@@ -528,12 +531,11 @@ export default function HomePage() {
                 >
                   <button
                     onClick={() => toggleWishlist(product.id)}
-                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer"
+                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer hover:scale-110 transition"
                   >
                     {isFav ? '❤️' : '🤍'}
                   </button>
 
-                  {/* उत्पाद पर क्लिक करने पर डिटेल व अल्ट्रा ज़ूम पेज खुलेगा */}
                   <Link href={`/products/${product.id}`} className="block cursor-pointer">
                     <div>
                       <div className="w-full h-36 sm:h-40 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative">
@@ -558,6 +560,12 @@ export default function HomePage() {
                               PRICE DROP
                             </span>
                           )}
+                        </div>
+
+                        {/* Weight Freeze Guaranteed Badge */}
+                        <div className="absolute bottom-1 right-1 bg-slate-900/80 text-[8px] text-emerald-400 font-black px-1.5 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
+                          <span>⚖️</span>
+                          <span>{product.weight_grams ? `${product.weight_grams}g Locked` : 'Verified'}</span>
                         </div>
                       </div>
 
@@ -613,7 +621,7 @@ export default function HomePage() {
         </Link>
         <button onClick={() => setFilterType('trending')} className="flex flex-col items-center py-1 flex-1">
           <span className="text-base text-gray-500">🔥</span>
-          <span className="text-[10px] font-medium text-gray-500">Right Now</span>
+          <span className="text-[10px] font-medium text-gray-500">Trending</span>
         </button>
         <Link href="/cart" className="flex flex-col items-center py-1 relative flex-1">
           <span className="text-base text-gray-500">🛒</span>

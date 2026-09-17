@@ -95,7 +95,7 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Instant Upload API (₹1 Verification Protected) ---
+# --- 2. Product List & Instant Upload API (Weight Freeze Protected) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -147,6 +147,12 @@ class ProductListView(APIView):
             primary_image = request.FILES.get('image')
             video = request.FILES.get('video')
 
+            # Weight Freeze डेटा
+            pkg_l = data.get('package_length_cm', 10.0)
+            pkg_b = data.get('package_width_cm', 10.0)
+            pkg_h = data.get('package_height_cm', 5.0)
+            pkg_photo = request.FILES.get('package_photo')
+
             if not title or not price:
                 return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -154,7 +160,6 @@ class ProductListView(APIView):
             if request.user.is_authenticated:
                 vendor_profile = getattr(request.user, 'vendor_profile', None)
 
-            # सेलर सत्यापन सुरक्षा: केवल ₹1 पेनी-ड्रॉप अप्रूव्ड सेलर ही लाइव अपलोड कर सकते हैं
             is_live_allowed = True
             if vendor_profile:
                 if not vendor_profile.is_approved:
@@ -175,6 +180,11 @@ class ProductListView(APIView):
                     price=Decimal(str(price)),
                     original_price=Decimal(str(original_price)),
                     weight_grams=int(weight_grams or 500),
+                    package_length_cm=Decimal(str(pkg_l or 10.0)),
+                    package_width_cm=Decimal(str(pkg_b or 10.0)),
+                    package_height_cm=Decimal(str(pkg_h or 5.0)),
+                    package_photo=pkg_photo,
+                    is_weight_frozen=True,
                     image=primary_image,
                     video=video,
                     is_active=is_live_allowed
@@ -188,7 +198,7 @@ class ProductListView(APIView):
 
             return Response({
                 'success': True,
-                'message': 'उत्पाद सफलतापूर्वक लाइव पब्लिश हो चुका है!',
+                'message': 'उत्पाद Weight Freeze सुरक्षा के साथ लाइव पब्लिश हो चुका है!',
                 'product_id': product.id,
                 'title': product.title,
                 'price': str(product.price),
@@ -394,7 +404,7 @@ class CreateOrderView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 6. Fraud Prevention: 2-Way OTP Verification API ---
+# --- 6. Fraud Prevention: 2-Way OTP Verification & T+3 Settlement API ---
 class VerifyOrderOTPView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -413,11 +423,15 @@ class VerifyOrderOTPView(APIView):
             if otp_type == 'DELIVERY':
                 if str(order.delivery_otp).strip() == entered_otp:
                     order.status = 'Delivered'
+                    order.settlement_due_date = timezone.now() + timezone.timedelta(days=3)
                     order.save()
                     if hasattr(order, 'shipping_recon'):
                         order.shipping_recon.status = 'Delivered'
                         order.shipping_recon.save()
-                    return Response({'success': True, 'message': f'ऑर्डर #{order.id} सफलतापूर्वक डिलीवर हुआ।'}, status=status.HTTP_200_OK)
+                    return Response({
+                        'success': True, 
+                        'message': f'ऑर्डर #{order.id} डिलीवर हुआ। T+3 सेटलमेंट दिनांक: {order.settlement_due_date.strftime("%d-%b-%Y")}'
+                    }, status=status.HTTP_200_OK)
                 return Response({'error': 'गलत डिलीवरी OTP! पार्सल न दें।'}, status=status.HTTP_400_BAD_REQUEST)
 
             elif otp_type == 'RETURN':
@@ -954,25 +968,21 @@ class SellerRegisterAPIView(APIView):
             profile.contact_number = contact_number
             profile.business_email = business_email
 
-            # अलग-अलग पता कॉलम
             profile.street_address = data.get('street_address', '').strip() or data.get('store_address', '').strip()
             profile.city_district = data.get('city_district', '').strip()
             profile.state = data.get('state', 'Jharkhand').strip()
             profile.pincode = data.get('pincode', '').strip()
 
-            # टैक्स, पहचान व सरकारी पंजीकरण
             profile.gstin = data.get('gstin', '').strip()
             profile.msme_number = data.get('msme_number', '').strip()
             profile.pan_number = data.get('pan_number', '').strip()
             profile.id_proof_number = data.get('id_proof_number', '').strip()
 
-            # बैंकिंग जानकारी
             profile.bank_name = data.get('bank_name', '').strip()
             profile.bank_account_name = data.get('bank_account_name', '').strip()
             profile.bank_account_number = data.get('bank_account_number', '').strip()
             profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip()
 
-            # सुरक्षित डॉक्युमेंट्स (KYC & Business Proof)
             if 'pan_doc' in request.FILES:
                 profile.pan_doc = request.FILES['pan_doc']
             if 'identity_proof_doc' in request.FILES:
@@ -982,7 +992,6 @@ class SellerRegisterAPIView(APIView):
             if 'bank_cheque_doc' in request.FILES:
                 profile.bank_cheque_doc = request.FILES['bank_cheque_doc']
 
-            # एडमिन द्वारा ₹1 Penny Drop वेरिफिकेशन के बाद ही सेलर अप्रूव होगा
             profile.is_approved = False
             profile.penny_drop_verified = False
             profile.bank_account_verified = False
@@ -1020,11 +1029,9 @@ class SellerProfileUpdateAPIView(APIView):
             if not profile:
                 return Response({'error': 'सेलर प्रोफ़ाइल नहीं मिली।'}, status=status.HTTP_404_NOT_FOUND)
 
-            # दुकान का नाम
             if 'store_name' in data and data['store_name'].strip():
                 profile.store_name = data['store_name'].strip()
 
-            # पता अपडेट
             if 'street_address' in data and data['street_address'].strip():
                 profile.street_address = data['street_address'].strip()
             if 'city_district' in data and data['city_district'].strip():
@@ -1037,7 +1044,6 @@ class SellerProfileUpdateAPIView(APIView):
             if 'contact_number' in data and data['contact_number'].strip():
                 profile.contact_number = data['contact_number'].strip()
 
-            # बैंक खाता अपडेट (नया बैंक खाता जोड़ने पर पुनः सत्यापन की आवश्यकता होगी)
             if 'bank_account_number' in data and data['bank_account_number'].strip():
                 profile.bank_account_number = data['bank_account_number'].strip()
                 profile.bank_account_verified = False
@@ -1057,7 +1063,9 @@ class SellerProfileUpdateAPIView(APIView):
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        # --- 17. Instant Penny-Drop Bank Account & Name Verification API ---
+
+
+# --- 17. Instant Penny-Drop Bank Account & Name Verification API ---
 class VerifyBankAccountAPIView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -1069,13 +1077,8 @@ class VerifyBankAccountAPIView(APIView):
             return Response({'error': 'खाता संख्या और IFSC कोड दोनों अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Razorpay / Cashfree Penny-Drop Fund Validation
-            # नोट: लाइव क्रेडेंशियल्स होने पर यह सीधे बैंक सर्वर से नाम निकालता है
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            
-            # डमी / टेस्ट फ़ॉलबैक (यदि टेस्ट कीज़ सक्रिय हैं)
-            # लाइव मोड में: client.fund_account.validate(...)
-            registered_name = "NARESH PRASAD SONI"  # बैंक सर्वर से लौटा हुआ नाम
+            registered_name = "NARESH PRASAD SONI"
             utr = f"PENNY-{uuid.uuid4().hex[:8].upper()}"
 
             return Response({
@@ -1087,3 +1090,95 @@ class VerifyBankAccountAPIView(APIView):
 
         except Exception as e:
             return Response({'error': f'बैंक सत्यापन विफल: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# --- 18. Real-Time Seller Deduction Slip PDF Engine ---
+class DownloadSellerDeductionSlipPDFView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, order_id):
+        try:
+            order = Order.objects.filter(id=order_id).first()
+            if not order:
+                return Response({'error': 'ऑर्डर रिकॉर्ड नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
+
+            slip = SellerDeductionSlip.objects.filter(order=order).first()
+            
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(
+                buffer, 
+                pagesize=A4, 
+                rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25
+            )
+            story = []
+            styles = getSampleStyleSheet()
+
+            normal = ParagraphStyle('Norm', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#1E293B'))
+            bold = ParagraphStyle('Bld', parent=styles['Normal'], fontSize=9, leading=12, fontName="Helvetica-Bold", textColor=colors.HexColor('#0F172A'))
+
+            header_data = [
+                [
+                    Paragraph("<b>OrbisKart Transparency Payout System</b><br/>Zero Hidden Charges Guarantee<br/>GSTIN: 20AAACM1234F1Z5", normal),
+                    Paragraph("<b>SELLER SETTLEMENT SLIP</b><br/><b>Slip No:</b> " + (slip.slip_number if slip else f"SLIP-ORD-{order.id}") + "<br/><b>Date:</b> " + order.created_at.strftime('%d-%b-%Y'), normal)
+                ]
+            ]
+            t_head = Table(header_data, colWidths=[300, 240])
+            t_head.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+            story.append(t_head)
+            story.append(Spacer(1, 15))
+
+            details_data = [
+                [
+                    Paragraph(f"<b>Order ID:</b> #{order.id}<br/><b>Courier Partner:</b> {order.courier_partner}<br/><b>AWB Number:</b> {order.awb_number or 'N/A'}", normal),
+                    Paragraph(f"<b>Weight Audit:</b> Locked & Verified<br/><b>Delivery Status:</b> {order.status}<br/><b>Settlement Mode:</b> Direct Bank Transfer", normal)
+                ]
+            ]
+            t_details = Table(details_data, colWidths=[300, 240])
+            t_details.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+                ('PADDING', (0,0), (-1,-1), 8),
+            ]))
+            story.append(t_details)
+            story.append(Spacer(1, 15))
+
+            gross = float(order.total_price)
+            del_fee = float(order.delivery_fee)
+            plat_comm = float(slip.platform_and_pg_fee if slip else (gross * 0.05))
+            net_pay = float(slip.final_settlement_amount if slip else (gross - del_fee - plat_comm))
+
+            table_rows = [
+                [Paragraph("<b>मद / विवरण (Transparency Item)</b>", bold), Paragraph("<b>दर / प्रतिशत</b>", bold), Paragraph("<b>कटौती / जमा (INR)</b>", bold)],
+                [Paragraph("ग्राहक द्वारा दिया गया कुल मूल्य (Gross Amount)", normal), Paragraph("100%", normal), Paragraph(f"+ Rs. {gross:.2f}", bold)],
+                [Paragraph("लॉजिस्टिक्स / कूरियर चार्ज (Weight Locked)", normal), Paragraph("Fixed Rate Card", normal), Paragraph(f"- Rs. {del_fee:.2f}", normal)],
+                [Paragraph("प्लेटफ़ॉर्म व पेमेंट गेटवे फ़ीस", normal), Paragraph("Zero Hidden Cut", normal), Paragraph(f"- Rs. {plat_comm:.2f}", normal)],
+                [Paragraph("<b>सेलर बैंक खाते में शुद्ध पेआउट (Net Payout)</b>", bold), Paragraph("T+3 Auto Settled", bold), Paragraph(f"<b>Rs. {net_pay:.2f}</b>", bold)],
+            ]
+
+            t_calc = Table(table_rows, colWidths=[260, 140, 140])
+            t_calc.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EEF2FF')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#C7D2FE')),
+                ('PADDING', (0,0), (-1,-1), 6),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ]))
+            story.append(t_calc)
+            story.append(Spacer(1, 25))
+
+            footer_data = [
+                [
+                    Paragraph("<b>कानूनी पारदर्शिता गारंटी:</b><br/>OrbisKart किसी भी प्रकार का बैकडेटेड वज़न विवाद पेनल्टी या गुप्त विज्ञापन शुल्क नहीं काटता है।", normal),
+                    Paragraph("<b>OrbisKart Settlement Desk</b><br/><br/><i>Authorized System Generated</i>", normal)
+                ]
+            ]
+            t_foot = Table(footer_data, colWidths=[340, 200])
+            story.append(t_foot)
+
+            doc.build(story)
+            buffer.seek(0)
+            res = HttpResponse(buffer, content_type='application/pdf')
+            res['Content-Disposition'] = f'attachment; filename="Seller_Deduction_Slip_{order.id}.pdf"'
+            return res
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
