@@ -21,6 +21,7 @@ from .views import (
     SellerProfileUpdateAPIView,          # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
     VerifyBankAccountAPIView,            # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
     DownloadSellerDeductionSlipPDFView,  # 1-क्लिक सेलर डिडक्शन स्लिप PDF इंजन
+    ProcessAutomatedT3SettlementView,    # T+3 स्वचालित बैंक सेटलमेंट क्रॉन इंजन
 )
 
 urlpatterns = [
@@ -63,4 +64,7 @@ urlpatterns = [
     # 8. Central ECO Master Ledger API (Admin Dashboard Sync)
     path('api/admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger'),
     path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco-master-ledger-alt'),
+
+    # 9. Automated T+3 Settlement Cron Endpoint
+    path('api/cron/process-t3-settlements/', ProcessAutomatedT3SettlementView.as_view(), name='process-t3-settlements'),
 ]
