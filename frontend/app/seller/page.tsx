@@ -101,9 +101,12 @@ export default function SellerPortalPage() {
     setLoading(true);
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/seller/dashboard/`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const headers: Record<string, string> = {};
+      if (token && token !== 'undefined' && token !== 'null') {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/seller/dashboard/`, { headers });
 
       if (res.ok) {
         const data = await res.json();
@@ -166,12 +169,28 @@ export default function SellerPortalPage() {
       });
     }
 
+    const headers: Record<string, string> = {};
+    if (token && token !== 'undefined' && token !== 'null') {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/products/`, {
+      let res = await fetch(`${API_BASE_URL}/api/products/`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: headers,
         body: form,
       });
+
+      // यदि टोकन एक्सपायर/अमान्य मिले (401), तो अमान्य टोकन हटाकर दोबारा प्रयास करें
+      if (res.status === 401) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('access_token');
+        }
+        res = await fetch(`${API_BASE_URL}/api/products/`, {
+          method: 'POST',
+          body: form,
+        });
+      }
 
       if (res.ok) {
         alert('✅ 100% पारदर्शी उत्पाद मल्टीपल फ़ोटोज़ व वज़न लॉक के साथ लाइव हो गया!');
