@@ -13,6 +13,11 @@ interface DeductionSlip {
   utr: string;
 }
 
+interface CategoryItem {
+  id: number;
+  name: string;
+}
+
 interface SellerSummaryData {
   store_name: string;
   is_approved: boolean;
@@ -37,10 +42,46 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onren
 export default function SellerPortalPage() {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<SellerSummaryData | null>(null);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  
+  // प्रोडक्ट जोड़ने का स्टेट
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    category: '',
+    price: '',
+    original_price: '',
+    stock: '10',
+    weight_grams: '300',
+    package_length_cm: '10.00',
+    package_width_cm: '10.00',
+    package_height_cm: '5.00',
+    hsn_code: '851830',
+    gst_rate: '18.00',
+    is_weight_frozen: true,
+  });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchSellerDashboard();
+    fetchCategories();
   }, []);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.categories) {
+          setCategories(data.categories);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load categories', err);
+    }
+  };
 
   const fetchSellerDashboard = async () => {
     setLoading(true);
@@ -54,7 +95,6 @@ export default function SellerPortalPage() {
         const data = await res.json();
         setSummary(data);
       } else {
-        // फ़ॉलबैक यदि टोकन नहीं है
         setSummary({
           store_name: 'OrbisKart Merchant Hub',
           is_approved: true,
@@ -74,6 +114,68 @@ export default function SellerPortalPage() {
       console.error('Failed to load seller dashboard', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUploading(true);
+
+    const token = localStorage.getItem('access_token');
+    const form = new FormData();
+    form.append('title', formData.title);
+    form.append('description', formData.description);
+    form.append('category', formData.category);
+    form.append('price', formData.price);
+    if (formData.original_price) form.append('original_price', formData.original_price);
+    form.append('stock', formData.stock);
+    form.append('weight_grams', formData.weight_grams);
+    form.append('package_length_cm', formData.package_length_cm);
+    form.append('package_width_cm', formData.package_width_cm);
+    form.append('package_height_cm', formData.package_height_cm);
+    form.append('hsn_code', formData.hsn_code);
+    form.append('gst_rate', formData.gst_rate);
+    form.append('is_weight_frozen', formData.is_weight_frozen ? 'true' : 'false');
+    form.append('is_active', 'true');
+
+    if (selectedFile) {
+      form.append('image', selectedFile);
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/products/`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+
+      if (res.ok) {
+        alert('✅ 100% पारदर्शी उत्पाद सफलतापूर्वक लाइव हो गया!');
+        setShowAddModal(false);
+        setFormData({
+          title: '',
+          description: '',
+          category: '',
+          price: '',
+          original_price: '',
+          stock: '10',
+          weight_grams: '300',
+          package_length_cm: '10.00',
+          package_width_cm: '10.00',
+          package_height_cm: '5.00',
+          hsn_code: '851830',
+          gst_rate: '18.00',
+          is_weight_frozen: true,
+        });
+        setSelectedFile(null);
+      } else {
+        const errorData = await res.json();
+        alert('अपलोड त्रुटि: ' + JSON.stringify(errorData));
+      }
+    } catch (err) {
+      alert('सर्वर से कनेक्ट करने में विफल');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -106,8 +208,8 @@ export default function SellerPortalPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* Store Title & Penny Drop Status */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
+        {/* Store Title, Status & Add Product Button */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <div>
             <h1 className="text-xl font-black text-gray-900">
               {summary?.store_name || 'My Seller Store'}
@@ -116,7 +218,14 @@ export default function SellerPortalPage() {
               शून्य छुपा हुआ शुल्क (0% Hidden Cuts), कूरियर वज़न ऑडिट और डायरेक्ट T+3 बैंक सेटलमेंट
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>➕</span>
+              <span>नया पारदर्शी उत्पाद जोड़ें</span>
+            </button>
             <span
               className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
                 summary?.is_approved
@@ -242,7 +351,7 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* Weight Dispute Protection Architecture */}
+        {/* Zero-Fraud Weight Freeze Guarantee Card */}
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-xl">⚖️</span>
@@ -254,6 +363,236 @@ export default function SellerPortalPage() {
           </p>
         </div>
       </main>
+
+      {/* --- पूर्ण पारदर्शी Add Product Modal --- */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 my-8">
+            <div className="flex items-center justify-between border-b pb-4 mb-4">
+              <div>
+                <h3 className="text-base font-black text-gray-900 flex items-center gap-2">
+                  <span>📦</span> नया पारदर्शी उत्पाद सूचीबद्ध करें (Add Product)
+                </h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">वज़न फ़्रीज़, HSN कोड और सटीक जीएसटी के साथ</p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-400 hover:text-gray-700 text-lg font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleProductSubmit} className="space-y-4 text-xs">
+              {/* श्रेणी व शीर्षक */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">श्रेणी (Category) *</label>
+                  <select
+                    required
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="">श्रेणी चुनें (20 श्रेणियां उपलब्ध)</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">उत्पाद का नाम (Title) *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="उदा. Pure Cotton Saree / Wireless Headphone"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* विवरण */}
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">उत्पाद विवरण (Description) *</label>
+                <textarea
+                  required
+                  rows={2}
+                  placeholder="सामग्री, साइज़, रंग और गुणवत्ता का सच्चा विवरण..."
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+
+              {/* क़ीमत व स्टॉक */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">विक्रय मूल्य (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="1499"
+                    value={formData.price}
+                    onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">MRP / पुराना मूल्य (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="2999"
+                    value={formData.original_price}
+                    onChange={(e) => setFormData({ ...formData, original_price: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">उपलब्ध स्टॉक *</label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.stock}
+                    onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* पारदर्शी वज़न सुरक्षा (Weight Freeze) */}
+              <div className="bg-amber-50/60 border border-amber-200 p-3.5 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-amber-900 flex items-center gap-1.5">
+                    <span>⚖️</span> कूरियर वज़न ऑडिट व Weight Freeze सुरक्षा
+                  </span>
+                  <label className="flex items-center gap-1.5 cursor-pointer font-bold text-amber-800">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_weight_frozen}
+                      onChange={(e) => setFormData({ ...formData, is_weight_frozen: e.target.checked })}
+                      className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4"
+                    />
+                    वज़न लॉक करें (No Penalty)
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2">
+                  <div>
+                    <span className="block text-[10px] font-bold text-gray-600 mb-1">वज़न (Grams) *</span>
+                    <input
+                      type="number"
+                      required
+                      value={formData.weight_grams}
+                      onChange={(e) => setFormData({ ...formData, weight_grams: e.target.value })}
+                      className="w-full p-2 bg-white border rounded-lg font-bold"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-gray-600 mb-1">लंबाई (L cm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formData.package_length_cm}
+                      onChange={(e) => setFormData({ ...formData, package_length_cm: e.target.value })}
+                      className="w-full p-2 bg-white border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-gray-600 mb-1">चौड़ाई (W cm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formData.package_width_cm}
+                      onChange={(e) => setFormData({ ...formData, package_width_cm: e.target.value })}
+                      className="w-full p-2 bg-white border rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-[10px] font-bold text-gray-600 mb-1">ऊंचाई (H cm)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={formData.package_height_cm}
+                      onChange={(e) => setFormData({ ...formData, package_height_cm: e.target.value })}
+                      className="w-full p-2 bg-white border rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* टैक्स, HSN व प्रोडक्ट इमेज */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">HSN कोड *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="851830"
+                    value={formData.hsn_code}
+                    onChange={(e) => setFormData({ ...formData, hsn_code: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">GST दर (%) *</label>
+                  <select
+                    value={formData.gst_rate}
+                    onChange={(e) => setFormData({ ...formData, gst_rate: e.target.value })}
+                    className="w-full p-2.5 bg-gray-50 border rounded-xl font-bold text-gray-800"
+                  >
+                    <option value="0.00">0% (टैक्स मुक्त)</option>
+                    <option value="5.00">5%</option>
+                    <option value="12.00">12%</option>
+                    <option value="18.00">18%</option>
+                    <option value="28.00">28%</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">उत्पाद फ़ोटो (Image) *</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    required
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSelectedFile(e.target.files[0]);
+                      }
+                    }}
+                    className="w-full text-[11px] p-1.5 bg-gray-50 border rounded-xl"
+                  />
+                </div>
+              </div>
+
+              {/* सबमिट बटन्स */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2.5 text-gray-600 font-bold hover:bg-gray-100 rounded-xl transition cursor-pointer"
+                >
+                  रद्द करें
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+                >
+                  {uploading ? '⏳ अपलोड हो रहा है...' : '🚀 उत्पाद लाइव करें (List Product)'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
