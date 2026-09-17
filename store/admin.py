@@ -50,9 +50,11 @@ def approve_and_verify_sellers(modeladmin, request, queryset):
 
 @admin.register(VendorProfile)
 class VendorProfileAdmin(admin.ModelAdmin):
+    # list_editable में शामिल दोनों फ़ील्ड्स को list_display में शामिल कर दिया गया है
     list_display = (
         'store_name', 'contact_number', 'city_district', 'state', 
-        'approval_badge', 'penny_drop_status', 'bank_account_number', 'wallet_balance', 'created_at'
+        'is_approved', 'penny_drop_verified', 'approval_badge', 'penny_drop_status', 
+        'bank_account_number', 'wallet_balance', 'created_at'
     )
     list_filter = ('is_approved', 'penny_drop_verified', 'state', 'bank_account_verified')
     search_fields = ('store_name', 'contact_number', 'business_email', 'pan_number', 'gstin', 'msme_number', 'bank_account_number')
