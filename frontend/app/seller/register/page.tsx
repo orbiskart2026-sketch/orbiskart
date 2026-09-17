@@ -35,6 +35,8 @@ export default function SellerRegisterPage() {
     owner_name: '',
     contact_number: '',
     business_email: '',
+    password: '',
+    confirm_password: '',
     country: 'IN',
     street_address: '',
     city_district: '',
@@ -125,7 +127,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप करने व ऑटो-फ़ेच दोनों के लिए)
+  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप करने व ऑटो-फ़ेच दोनों के लिए खुला)
   const verifyAndFetchAccountHolder = async () => {
     if (!form.bank_account_number || !form.confirm_account_number) {
       alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
@@ -194,12 +196,27 @@ export default function SellerRegisterPage() {
       return;
     }
 
+    if (form.password && form.confirm_password && form.password !== form.confirm_password) {
+      alert('⚠️ पासवर्ड और कन्फ़र्म पासवर्ड आपस में मेल नहीं खा रहे हैं!');
+      return;
+    }
+
     if (form.bank_account_number !== form.confirm_account_number) {
       alert('⚠️ दोनों बैंक खाता संख्या (Account Numbers) आपस में मेल नहीं खा रहे हैं! कृपया दोबारा जाँचें।');
       return;
     }
 
-    if (!form.store_name || !form.owner_name || !form.contact_number || !form.street_address || !form.city_district || !form.pincode || !form.bank_account_number || !form.bank_ifsc_code) {
+    if (
+      !form.store_name ||
+      !form.owner_name ||
+      !form.contact_number ||
+      !form.business_email ||
+      !form.street_address ||
+      !form.city_district ||
+      !form.pincode ||
+      !form.bank_account_number ||
+      !form.bank_ifsc_code
+    ) {
       alert('कृपया सभी अनिवार्य (*) फ़ील्ड भरें।');
       return;
     }
@@ -209,7 +226,7 @@ export default function SellerRegisterPage() {
     setLoading(true);
 
     const data = new FormData();
-    const fullStreetAddress = form.local_circle 
+    const fullStreetAddress = form.local_circle
       ? `${form.street_address}, Circle/PO: ${form.local_circle}`
       : form.street_address;
 
@@ -218,7 +235,7 @@ export default function SellerRegisterPage() {
         data.append(key, fullStreetAddress);
       } else if (key === 'bank_account_name') {
         data.append(key, finalAccountName);
-      } else if (key !== 'confirm_account_number') {
+      } else if (key !== 'confirm_account_number' && key !== 'confirm_password') {
         data.append(key, value);
       }
     });
@@ -236,7 +253,7 @@ export default function SellerRegisterPage() {
 
       const resData = await res.json();
       if (res.ok && (resData.success || resData.id || resData.vendor_id)) {
-        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। OrbisKart सुपर एडमिन पैनल से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।');
+        alert('🎉 बधाई! आपकी सेलर प्रोफ़ाइल पंजीकृत हो गई है। सुपर एडमिन से 1-क्लिक अप्रूवल होते ही आपकी दुकान लाइव हो जाएगी।');
         router.push('/seller');
       } else {
         alert(`पंजीकरण संदेश: ${resData.message || resData.error || 'पंजीकरण दर्ज हो गया है'}`);
@@ -258,7 +275,7 @@ export default function SellerRegisterPage() {
               OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Zero Hidden Charges, IFSC ऑटो-बैंक फ़ेच, डबल अकाउंट सत्यापन और ₹1 बैंक ट्रायल।
+              Zero Hidden Charges, IFSC ऑटो-बैंक फ़ेच, पासवर्ड निर्माण और सुरक्षित बैंक सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -267,11 +284,11 @@ export default function SellerRegisterPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-          {/* सेक्शन 1: दुकान व लोकेशन */}
+          {/* सेक्शन 1: दुकान, क्रेडेंशियल व लोकेशन */}
           <div>
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
-              दुकान व विक्रेता विवरण (Global Location Engine)
+              दुकान व विक्रेता विवरण (लॉगिन क्रेडेंशियल्स के साथ)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -318,6 +335,40 @@ export default function SellerRegisterPage() {
                   placeholder="seller@example.com"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
+              </div>
+
+              {/* पासवर्ड निर्माण फ़ील्ड्स */}
+              <div>
+                <label className="block text-slate-300 mb-1 font-bold">लॉगिन पासवर्ड बनाएं (Password) *</label>
+                <input
+                  type="password"
+                  required
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="कम से कम 8 अक्षर का सुरक्षित पासवर्ड"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-300 mb-1 font-bold">पासवर्ड दोबारा दर्ज करें (Confirm Password) *</label>
+                <input
+                  type="password"
+                  required
+                  value={form.confirm_password}
+                  onChange={(e) => setForm({ ...form, confirm_password: e.target.value })}
+                  placeholder="पासवर्ड दोबारा दर्ज करें"
+                  className={`w-full px-3.5 py-2.5 bg-slate-950 border rounded-xl text-white font-mono ${
+                    form.confirm_password && form.confirm_password !== form.password
+                      ? 'border-red-500 ring-1 ring-red-500'
+                      : 'border-slate-700'
+                  }`}
+                />
+                {form.confirm_password && form.confirm_password !== form.password && (
+                  <span className="text-[10px] text-red-400 mt-1 block">⚠️ दोनों पासवर्ड मेल नहीं खा रहे हैं।</span>
+                )}
+                {form.confirm_password && form.confirm_password === form.password && (
+                  <span className="text-[10px] text-emerald-400 mt-1 block">✔ पासवर्ड मेल खा गया!</span>
+                )}
               </div>
 
               <div>
@@ -393,7 +444,7 @@ export default function SellerRegisterPage() {
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-slate-300 mb-1">गली / दुकान संख्या / वेयरहाउस पूरा लैंडमार्क पता *</label>
+                <label className="block text-slate-300 mb-1">गली / दुकान संख्या / पूरा लैंडमार्क पता *</label>
                 <input
                   type="text"
                   required
@@ -406,11 +457,11 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 2: टैक्स व सरकारी अनुपालन */}
+          {/* सेक्शन 2: टैक्स व पहचान दस्तावेज */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">2</span>
-              टैक्स, पहचान व सरकारी पंजीकरण (GST / MSME / बिज़नेस प्रूफ)
+              टैक्स, पहचान व सरकारी पंजीकरण (GST / MSME / पहचान दस्तावेज)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -447,13 +498,13 @@ export default function SellerRegisterPage() {
                 />
               </div>
               <div>
-                <label className="block text-slate-300 mb-1">पहचान पत्र संख्या (Govt ID / पहचान संख्या) *</label>
+                <label className="block text-slate-300 mb-1">पहचान पत्र संख्या (Govt ID / Voter / Passport) *</label>
                 <input
                   type="text"
                   required
                   value={form.id_proof_number}
                   onChange={(e) => setForm({ ...form, id_proof_number: e.target.value })}
-                  placeholder="सरकारी पहचान संख्या दर्ज करें"
+                  placeholder="पहचान पत्र संख्या दर्ज करें"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
               </div>
@@ -492,7 +543,7 @@ export default function SellerRegisterPage() {
             </div>
           </div>
 
-          {/* सेक्शन 3: बैंकिंग, IFSC व खाता सत्यापन */}
+          {/* सेक्शन 3: बैंकिंग एवं सेटलमेंट खाता */}
           <div className="border-t border-slate-800 pt-6">
             <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">3</span>
