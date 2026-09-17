@@ -19,6 +19,9 @@ interface Order {
   items: OrderItem[];
 }
 
+// लाइव या लोकल API यूआरएल का डायनामिक सेटअप
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,15 +32,15 @@ export default function OrdersPage() {
 
   const fetchOrders = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      const res = await fetch('http://127.0.0.1:8000/api/orders/', {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch(`${API_BASE_URL}/api/orders/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
       const data = await res.json();
       if (res.ok) {
-        setOrders(Array.isArray(data) ? data : []);
+        setOrders(Array.isArray(data) ? data : data.orders || []);
       }
     } catch (err) {
       console.error('ऑर्डर लोड करने में त्रुटि:', err);
@@ -48,7 +51,7 @@ export default function OrdersPage() {
 
   const downloadInvoice = (orderId: number) => {
     // 1-Click आधिकारिक सरकारी GST इनवॉइस PDF डाउनलोड
-    window.open(`http://127.0.0.1:8000/api/orders/${orderId}/invoice/`, '_blank');
+    window.open(`${API_BASE_URL}/api/orders/${orderId}/invoice/`, '_blank');
   };
 
   return (
@@ -84,6 +87,17 @@ export default function OrdersPage() {
               <span style={{ padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', background: '#dcfce7', color: '#15803d' }}>
                 {order.status}
               </span>
+            </div>
+
+            {/* आर्डर किए गए प्रोडक्ट्स की लिस्ट */}
+            <div style={{ marginBottom: '12px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', marginBottom: '6px' }}>उत्पाद विवरण:</p>
+              {order.items && order.items.map((item) => (
+                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#475569', padding: '4px 0', borderBottom: '1px dashed #f1f5f9' }}>
+                  <span>{item.product_title} (x{item.quantity})</span>
+                  <span>₹{item.price}</span>
+                </div>
+              ))}
             </div>
 
             <p style={{ margin: '6px 0' }}>कुल भुगतान: <strong>₹{order.total_price}</strong> ({order.payment_method})</p>
