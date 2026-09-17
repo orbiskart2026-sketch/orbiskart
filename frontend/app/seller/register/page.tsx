@@ -125,7 +125,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप भी कर सकते हैं)
+  // 3. बैंक खाताधारक का नाम स्मार्ट सत्यापन (हाथ से टाइप करने व ऑटो-फ़ेच दोनों के लिए)
   const verifyAndFetchAccountHolder = async () => {
     if (!form.bank_account_number || !form.confirm_account_number) {
       alert('कृपया पहले दोनों जगह खाता संख्या दर्ज करें।');
@@ -569,10 +569,10 @@ export default function SellerRegisterPage() {
                 )}
               </div>
 
-              {/* खाताधारक नाम: अब खुला है, आप सीधे नाम टाइप भी कर सकते हैं */}
+              {/* Beneficiary Name: 100% खुला और हाथ से टाइप करने योग्य इनपुट */}
               <div className="md:col-span-2 flex flex-col sm:flex-row gap-3 items-end">
                 <div className="flex-1 w-full">
-                  <label className="block text-slate-300 mb-1">
+                  <label className="block text-slate-300 mb-1 font-bold">
                     खाते में दर्ज नाम (Beneficiary Name) * {accountVerified && <span className="text-emerald-400 font-bold">✔ दर्ज हुआ</span>}
                   </label>
                   <input
@@ -580,8 +580,8 @@ export default function SellerRegisterPage() {
                     required
                     value={form.bank_account_name}
                     onChange={(e) => setForm({ ...form, bank_account_name: e.target.value })}
-                    placeholder="पासबुक के अनुसार खाताधारक का नाम यहाँ टाइप करें..."
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500/70 rounded-xl text-white font-bold tracking-wide focus:border-indigo-400 focus:outline-none"
+                    placeholder="पासबुक के अनुसार अपना पूरा नाम यहाँ टाइप करें (उदा. NARESH PRASAD SONI)..."
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-indigo-500 rounded-xl text-white font-bold tracking-wide focus:ring-2 focus:ring-indigo-400 focus:outline-none"
                   />
                 </div>
 
