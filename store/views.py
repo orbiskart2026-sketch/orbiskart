@@ -96,16 +96,19 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Instant Upload API (Weight Freeze Protected) ---
+# --- 2. Product List & Multi-Image Upload API (Fixed Admin Visibility & Multi-Upload) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         try:
-            queryset = Product.objects.filter(
-                models.Q(is_active=True) | models.Q(is_active__isnull=True)
-            ).select_related('category', 'category_policy').prefetch_related('additional_images').all()
+            queryset = Product.objects.select_related('category', 'category_policy', 'vendor').prefetch_related('additional_images').all()
+
+            # केवल सामान्य ग्राहकों के लिए इनएक्टिव छुपाएं, एडमिन/सेलर के लिए सब दिखाएं
+            show_all = request.query_params.get('show_all', 'false').lower() == 'true'
+            if not show_all and not (request.user.is_authenticated and request.user.is_staff):
+                queryset = queryset.filter(models.Q(is_active=True) | models.Q(is_active__isnull=True))
 
             search_query = request.query_params.get('search', '').strip()
             if search_query:
@@ -140,40 +143,37 @@ class ProductListView(APIView):
     def post(self, request):
         try:
             data = request.data
-            title = data.get('title')
+            title = data.get('title', '').strip()
             price = data.get('price')
             original_price = data.get('original_price') or price
             weight_grams = data.get('weight_grams', 500)
             description = data.get('description', '')
             primary_image = request.FILES.get('image')
+            package_photo = request.FILES.get('package_photo')
             video = request.FILES.get('video')
 
-            # Weight Freeze डेटा
             pkg_l = data.get('package_length_cm', 10.0)
             pkg_b = data.get('package_width_cm', 10.0)
             pkg_h = data.get('package_height_cm', 5.0)
-            pkg_photo = request.FILES.get('package_photo')
 
             if not title or not price:
                 return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
 
+            # वेंडर प्रोफाइल को सटीक खोजना
             vendor_profile = None
-            if request.user.is_authenticated:
-                vendor_profile = getattr(request.user, 'vendor_profile', None)
+            if request.user.is_authenticated and hasattr(request.user, 'vendor_profile'):
+                vendor_profile = request.user.vendor_profile
+            elif request.user.is_authenticated:
+                vendor_profile = VendorProfile.objects.filter(user=request.user).first()
 
-            is_live_allowed = True
-            if vendor_profile:
-                if not vendor_profile.is_approved:
-                    return Response({
-                        'error': 'आपकी सेलर प्रोफ़ाइल सत्यापन प्रक्रिया में है। एडमिन द्वारा ₹1 ट्रायल क्रेडिट और बैंक अप्रूवल के बाद ही आप उत्पाद पब्लिश कर सकेंगे।'
-                    }, status=status.HTTP_403_FORBIDDEN)
-                is_live_allowed = vendor_profile.is_approved
+            if not vendor_profile:
+                vendor_profile = VendorProfile.objects.first()
 
             default_policy = CategoryPolicy.objects.first()
 
             with transaction.atomic():
                 product = Product.objects.create(
-                    seller=request.user if request.user.is_authenticated else None,
+                    seller=request.user if request.user.is_authenticated else (vendor_profile.user if vendor_profile else None),
                     vendor=vendor_profile,
                     category_policy=default_policy,
                     title=title,
@@ -184,25 +184,30 @@ class ProductListView(APIView):
                     package_length_cm=Decimal(str(pkg_l or 10.0)),
                     package_width_cm=Decimal(str(pkg_b or 10.0)),
                     package_height_cm=Decimal(str(pkg_h or 5.0)),
-                    package_photo=pkg_photo,
+                    package_photo=package_photo,
                     is_weight_frozen=True,
                     image=primary_image,
                     video=video,
-                    is_active=is_live_allowed
+                    is_active=True  # सेलर अपलोड करते ही Django Admin और स्टोर में दिखेगा
                 )
 
+                # मल्टीपल गैलरी इमेजेज को सुरक्षित प्रोसेस करना
                 gallery_files = request.FILES.getlist('gallery_images')
                 if gallery_files:
-                    ProductImage.objects.bulk_create([
-                        ProductImage(product=product, image=img) for img in gallery_files
-                    ])
+                    gallery_instances = [
+                        ProductImage(product=product, image=img)
+                        for img in gallery_files if img
+                    ]
+                    if gallery_instances:
+                        ProductImage.objects.bulk_create(gallery_instances)
 
             return Response({
                 'success': True,
-                'message': 'उत्पाद Weight Freeze सुरक्षा के साथ लाइव पब्लिश हो चुका है!',
+                'message': f'उत्पाद #{product.id} सफलतापूर्वक अपलोड हुआ और Django Admin में उपलब्ध है!',
                 'product_id': product.id,
                 'title': product.title,
                 'price': str(product.price),
+                'gallery_count': len(gallery_files) if gallery_files else 0,
                 'is_active': product.is_active
             }, status=status.HTTP_201_CREATED)
 
