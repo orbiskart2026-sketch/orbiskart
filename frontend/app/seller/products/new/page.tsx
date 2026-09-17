@@ -23,49 +23,78 @@ export default function NewProductUploadPage() {
 
   const [primaryImage, setPrimaryImage] = useState<File | null>(null);
   const [packagePhoto, setPackagePhoto] = useState<File | null>(null);
+  const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
+
+  // मल्टीपल गैलरी इमेजेज सेलेक्ट हैंडलर
+  const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const filesArray = Array.from(e.target.files);
+      setGalleryImages(filesArray);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!form.title || !form.price || !primaryImage || !packagePhoto) {
-      alert('कृपया उत्पाद का नाम, मूल्य, मुख्य फोटो और Weight Freeze पैकेजिंग फोटो अवश्य अपलोड करें।');
+    if (!form.title.trim() || !form.price.trim() || !primaryImage || !packagePhoto) {
+      alert('कृपया उत्पाद का नाम, विक्रय मूल्य, मुख्य फ़ोटो और Weight Freeze पार्सल फ़ोटो अवश्य भरें।');
       return;
     }
 
     setLoading(true);
 
-    const formData = new FormData();
-    formData.append('title', form.title);
-    formData.append('description', form.description);
-    formData.append('price', form.price);
-    formData.append('original_price', form.original_price || form.price);
-    formData.append('weight_grams', form.weight_grams);
-    formData.append('package_length_cm', form.package_length_cm);
-    formData.append('package_width_cm', form.package_width_cm);
-    formData.append('package_height_cm', form.package_height_cm);
-    formData.append('image', primaryImage);
-    formData.append('package_photo', packagePhoto);
-    if (video) formData.append('video', video);
-
-    const token = localStorage.getItem('access_token');
-
     try {
+      const formData = new FormData();
+      formData.append('title', form.title.trim());
+      formData.append('description', form.description.trim());
+      formData.append('price', form.price.trim());
+      formData.append('original_price', form.original_price.trim() || form.price.trim());
+      formData.append('weight_grams', form.weight_grams || '500');
+      formData.append('package_length_cm', form.package_length_cm || '10.0');
+      formData.append('package_width_cm', form.package_width_cm || '10.0');
+      formData.append('package_height_cm', form.package_height_cm || '5.0');
+
+      // मुख्य थंबनेल फ़ोटो
+      formData.append('image', primaryImage);
+
+      // Weight Freeze पार्सल फ़ोटो
+      formData.append('package_photo', packagePhoto);
+
+      // मल्टीपल गैलरी फ़ोटो (लूप में अलग-अलग फाइल अपेंड करना)
+      if (galleryImages.length > 0) {
+        galleryImages.forEach((file) => {
+          formData.append('gallery_images', file);
+        });
+      }
+
+      if (video) {
+        formData.append('video', video);
+      }
+
+      const token = localStorage.getItem('access_token');
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/products/`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: headers,
         body: formData,
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
-        alert('🎉 उत्पाद Weight Freeze सुरक्षा के साथ सफलतापूर्वक लाइव पब्लिश हो गया!');
+
+      if (res.ok && (data.success || data.product_id)) {
+        alert(`🎉 सफलता! उत्पाद #${data.product_id || ''} (${galleryImages.length} गैलरी फ़ोटो सहित) लाइव पब्लिश हो गया और Django Admin में उपलब्ध है!`);
         router.push('/seller');
       } else {
-        alert(`अपलोड विफल: ${data.error || 'सर्वर त्रुटि'}`);
+        alert(`अपलोड विफल: ${data.error || JSON.stringify(data)}`);
       }
-    } catch {
-      alert('सर्वर से संपर्क नहीं हो सका। कृपया पुनः प्रयास करें।');
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('सर्वर से संपर्क नहीं हो सका। कृपया इंटरनेट कनेक्शन जाँचें।');
     } finally {
       setLoading(false);
     }
@@ -76,8 +105,8 @@ export default function NewProductUploadPage() {
       <div className="max-w-3xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl space-y-6">
         <div className="border-b border-slate-800 pb-5 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-black text-indigo-400">नया उत्पाद जोड़ें (Add Product)</h1>
-            <p className="text-xs text-slate-400 mt-1">100% पारदर्शी लेज़र और Weight Freeze डिजिटल लॉक</p>
+            <h1 className="text-2xl font-black text-indigo-400">नया उत्पाद जोड़ें (Multi-Image Engine)</h1>
+            <p className="text-xs text-slate-400 mt-1">100% पारदर्शी लेज़र, मल्टीपल फ़ोटो और Weight Freeze डिजिटल लॉक</p>
           </div>
           <Link href="/seller" className="text-xs text-indigo-400 hover:underline">
             ← सेलर डैशबोर्ड पर लौटें
@@ -137,7 +166,7 @@ export default function NewProductUploadPage() {
             </div>
           </div>
 
-          {/* Weight Freeze Engine (कूरियर वज़न धोखाधड़ी सुरक्षा) */}
+          {/* Weight Freeze Engine */}
           <div className="p-5 bg-indigo-950/30 border border-indigo-500/40 rounded-2xl space-y-4">
             <div className="flex items-center gap-2">
               <span className="text-base">⚖️</span>
@@ -209,10 +238,10 @@ export default function NewProductUploadPage() {
             </div>
           </div>
 
-          {/* मीडिया अपलोड */}
+          {/* मीडिया: मुख्य फोटो, मल्टीपल गैलरी फोटो और वीडियो */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-slate-300 mb-1">मुख्य उत्पाद फोटो (Primary Image) *</label>
+              <label className="block text-slate-300 mb-1">मुख्य उत्पाद फ़ोटो (Primary Image) *</label>
               <input
                 type="file"
                 accept="image/*"
@@ -221,15 +250,34 @@ export default function NewProductUploadPage() {
                 className="w-full text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
               />
             </div>
+
             <div>
-              <label className="block text-slate-300 mb-1">उत्पाद वीडियो (वैकल्पिक)</label>
+              <label className="block text-slate-300 mb-1">
+                अतिरिक्त फ़ोटो (Multiple Gallery Images - 1 से अधिक चुनें)
+              </label>
               <input
                 type="file"
-                accept="video/*"
-                onChange={(e) => e.target.files && setVideo(e.target.files[0])}
-                className="w-full text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
+                accept="image/*"
+                multiple
+                onChange={handleGalleryChange}
+                className="w-full text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
               />
+              {galleryImages.length > 0 && (
+                <span className="text-emerald-400 font-bold block mt-1.5">
+                  ✔ {galleryImages.length} गैलरी फ़ोटो चुनी गईं
+                </span>
+              )}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-slate-300 mb-1">उत्पाद वीडियो (वैकल्पिक)</label>
+            <input
+              type="file"
+              accept="video/*"
+              onChange={(e) => e.target.files && setVideo(e.target.files[0])}
+              className="w-full text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-slate-800 file:text-white cursor-pointer"
+            />
           </div>
 
           <button
@@ -237,7 +285,7 @@ export default function NewProductUploadPage() {
             disabled={loading}
             className="w-full py-4 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-sm transition shadow-xl disabled:opacity-50 cursor-pointer"
           >
-            {loading ? 'उत्पाद पब्लिश हो रहा है...' : 'सुरक्षित Weight Freeze के साथ उत्पाद लाइव करें 🚀'}
+            {loading ? 'मल्टीपल फ़ोटो और उत्पाद अपलोड हो रहा है...' : 'सुरक्षित Weight Freeze के साथ उत्पाद लाइव करें 🚀'}
           </button>
         </form>
       </div>
