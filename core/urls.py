@@ -16,6 +16,6 @@ urlpatterns = [
     path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco_master_ledger_direct'),
     path('api/', include('store.urls')),
     
-    # मीडिया फाइल्स (इमेज/फ़ोटो) को लाइव सर्व करने का पक्का नियम
+    # मीडिया फ़ाइलों को लाइव सर्व करने का स्थायी पाथ:
     re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
 ]
