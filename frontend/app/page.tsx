@@ -251,12 +251,12 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f6] text-gray-900 pb-20 font-sans">
-      {/* Top Transparency Banner */}
-      <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 text-center font-medium border-b border-slate-800 flex items-center justify-center gap-4 flex-wrap">
-        <span>🛡️ <b>100% Transparency:</b> Zero Hidden Cuts</span>
-        <span>⚖️ <b>Weight Freeze Guarantee:</b> No Fake Weight Penalties</span>
-        <span>📑 <b>GST Invoicing Included</b></span>
-        <span>⚡ <b>T+3 Fast Settlement</b></span>
+      {/* 1. शुद्ध कस्टमर-ओरिएंटेड टॉप पट्टी (सेलर पिच हटा दी गई है) */}
+      <div className="bg-slate-900 text-slate-200 text-xs py-1.5 px-4 font-medium border-b border-slate-800 flex items-center justify-center gap-6 overflow-x-auto whitespace-nowrap">
+        <span>🚚 <b>Free Delivery</b> on orders above ₹499</span>
+        <span>🔄 <b>7 Days Easy Replacement</b></span>
+        <span>💵 <b>Cash on Delivery</b> Available</span>
+        <span>🔒 <b>100% Secure Checkout</b></span>
       </div>
 
       {/* Header */}
@@ -334,7 +334,7 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Top Horizontal Categories Bar */}
+        {/* Categories Bar */}
         <div className="bg-white border-t border-gray-100 relative">
           <div className="max-w-7xl mx-auto px-2 sm:px-4 py-2 flex items-center justify-between">
             <button
@@ -498,7 +498,7 @@ export default function HomePage() {
 
         {loading ? (
           <div className="text-center py-20 text-gray-400 font-bold animate-pulse">
-            📦 लोड हो रहा है पारदर्शी कैटलॉग...
+            📦 लोड हो रहा है कैटलॉग...
           </div>
         ) : products.length === 0 ? (
           <div className="bg-white border rounded-2xl p-12 text-center shadow-sm">
@@ -514,10 +514,11 @@ export default function HomePage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {products.map((product) => {
+              // 2. शुद्ध इमेज URL हैंडलिंग
               const imageUrl = product.image
                 ? product.image.startsWith('http')
                   ? product.image
-                  : `${API_BASE_URL}${product.image}`
+                  : `${API_BASE_URL}${product.image.startsWith('/') ? '' : '/'}${product.image}`
                 : null;
 
               const isFav = wishlist.includes(product.id);
@@ -529,53 +530,55 @@ export default function HomePage() {
                   key={product.id}
                   className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs hover:shadow-md transition flex flex-col justify-between relative group"
                 >
+                  {/* Wishlist Button */}
                   <button
                     onClick={() => toggleWishlist(product.id)}
-                    className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer hover:scale-110 transition"
+                    className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full bg-white/90 shadow-xs flex items-center justify-center text-sm cursor-pointer hover:scale-110 transition"
                   >
                     {isFav ? '❤️' : '🤍'}
                   </button>
 
-                  <Link href={`/products/${product.id}`} className="block cursor-pointer">
-                    <div>
-                      <div className="w-full h-36 sm:h-40 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative">
-                        {imageUrl ? (
-                          <img
-                            src={imageUrl}
-                            alt={product.title}
-                            className="w-full h-full object-contain p-2 group-hover:scale-105 transition duration-300"
-                          />
-                        ) : (
-                          <span className="text-xs text-gray-400 font-bold">No Image</span>
+                  <Link href={`/products/${product.id}`} className="block cursor-pointer flex-1">
+                    {/* 3. इमेज कंटेनर (ओवरलैप मुक्त) */}
+                    <div className="w-full h-40 sm:h-44 bg-gray-50 rounded-lg mb-2.5 flex items-center justify-center overflow-hidden relative border border-gray-100">
+                      {imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={product.title}
+                          className="w-full h-full object-contain p-2 group-hover:scale-105 transition duration-300"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-gray-300">
+                          <span className="text-3xl mb-1">📷</span>
+                          <span className="text-[10px] font-bold text-gray-400">No Image</span>
+                        </div>
+                      )}
+
+                      {/* फ्लोटिंग बैज (इमेज के अंदर) */}
+                      <div className="absolute top-2 left-2 z-10 flex flex-col gap-1 items-start">
+                        {product.category_name && (
+                          <span className="bg-white/95 backdrop-blur-xs text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700 border border-gray-200">
+                            {product.category_name}
+                          </span>
                         )}
-
-                        <div className="absolute top-2 left-2 flex flex-col gap-1">
-                          {product.category_name && (
-                            <span className="bg-white/95 text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs text-gray-700">
-                              {product.category_name}
-                            </span>
-                          )}
-                          {hasPriceDrop && (
-                            <span className="bg-emerald-500 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs">
-                              PRICE DROP
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Weight Freeze Guaranteed Badge */}
-                        <div className="absolute bottom-1 right-1 bg-slate-900/80 text-[8px] text-emerald-400 font-black px-1.5 py-0.5 rounded backdrop-blur-xs flex items-center gap-1">
-                          <span>⚖️</span>
-                          <span>{product.weight_grams ? `${product.weight_grams}g Locked` : 'Verified'}</span>
-                        </div>
+                        {hasPriceDrop && (
+                          <span className="bg-emerald-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow-xs">
+                            PRICE DROP
+                          </span>
+                        )}
                       </div>
-
-                      <h3 className="font-bold text-gray-900 text-xs mb-1 line-clamp-2 group-hover:text-blue-600 transition">
-                        {product.title}
-                      </h3>
-                      <p className="text-gray-500 text-[11px] line-clamp-1 mb-2">{product.description}</p>
                     </div>
 
-                    <div className="flex items-baseline space-x-2 mb-2.5">
+                    {/* प्रोडक्ट विवरण (साफ़ टेक्स्ट, कोई ओवरलैपिंग नहीं) */}
+                    <div className="mb-2">
+                      <h3 className="font-bold text-gray-900 text-xs sm:text-sm line-clamp-2 leading-tight group-hover:text-blue-600 transition">
+                        {product.title}
+                      </h3>
+                      <p className="text-gray-500 text-[11px] line-clamp-1 mt-1">{product.description}</p>
+                    </div>
+
+                    {/* क़ीमत */}
+                    <div className="flex items-baseline space-x-2 mb-3">
                       <span className="text-sm sm:text-base font-black text-gray-900">₹{product.price}</span>
                       {product.original_price && (
                         <span className="text-[10px] sm:text-[11px] text-gray-400 line-through">
@@ -585,7 +588,8 @@ export default function HomePage() {
                     </div>
                   </Link>
 
-                  <div className="flex gap-1.5 sm:gap-2 pt-1">
+                  {/* एक्शन बटन्स */}
+                  <div className="flex gap-1.5 sm:gap-2 pt-1 mt-auto">
                     <button
                       onClick={() => handleAddToCart(product, false)}
                       disabled={addingId === product.id}
