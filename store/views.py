@@ -979,7 +979,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Complete Seller Onboarding & Direct Login Token Engine ---
+# --- 15. Complete Seller Onboarding & Independent User Creation ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -996,28 +996,31 @@ class SellerRegisterAPIView(APIView):
             if not store_name or not owner_name or not contact_number:
                 return Response({'error': 'दुकान का नाम, मालिक का नाम और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
-            username = business_email.split('@')[0] if business_email else f"seller_{contact_number[-4:]}"
+            # यूजरनेम दुकान के नाम से बनाएं (उदा: orbiskart)
+            base_username = "".join(e for e in store_name.lower() if e.isalnum()) or f"seller_{contact_number[-4:]}"
+            username = base_username
 
             with transaction.atomic():
-                user = User.objects.filter(username=username).first()
-                if not user and business_email:
-                    user = User.objects.filter(email=business_email).first()
-
-                if not user:
+                # यदि यूजर पहले से है तो नया यूजरनेम बनाएं ताकि पुराना एडमिन ओवरराइट न हो
+                counter = 1
+                while User.objects.filter(username=username).exists():
+                    existing_user = User.objects.get(username=username)
+                    if existing_user.email == business_email:
+                        user = existing_user
+                        break
+                    username = f"{base_username}_{counter}"
+                    counter += 1
+                else:
+                    # बिल्कुल नया स्वतंत्र सेलर यूज़र बनाएं
                     user = User.objects.create_user(
                         username=username,
                         email=business_email,
                         password=password,
                         first_name=owner_name
                     )
-                else:
-                    user.set_password(password)
-                    user.email = business_email
-                    user.first_name = owner_name
-                    user.save()
 
+                # वेंडर प्रोफाइल बनाएं
                 profile, _ = VendorProfile.objects.get_or_create(user=user)
-
                 profile.store_name = store_name
                 profile.contact_number = contact_number
                 profile.business_email = business_email
@@ -1036,7 +1039,6 @@ class SellerRegisterAPIView(APIView):
                 profile.bank_account_number = data.get('bank_account_number', '').strip()
                 profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
 
-                # दुकान की फ़ोटो व सभी दस्तावेज़ सुरक्षित सहेजना
                 if 'store_photo' in request.FILES:
                     profile.store_photo = request.FILES['store_photo']
                 if 'pan_doc' in request.FILES:
@@ -1053,26 +1055,13 @@ class SellerRegisterAPIView(APIView):
                 profile.bank_account_verified = True
                 profile.save()
 
-                # लाइव JWT लॉगिन टोकन जनरेट करना ताकि सेलर सीधे लॉगिन हो जाए
+                # लाइव JWT लॉगिन टोकन
                 refresh = RefreshToken.for_user(user)
                 access_token = str(refresh.access_token)
 
-                # कन्फर्मेशन ईमेल भेजना
-                if business_email:
-                    try:
-                        send_mail(
-                            subject='🎉 OrbisKart Seller Account Activated!',
-                            message=f"नमस्ते {owner_name},\n\nआपकी दुकान '{store_name}' OrbisKart पर सफलतापूर्वक पंजीकृत हो चुकी है!\n\nUser ID: {username}\nपंजीकृत ईमेल: {business_email}\nबैंक खाता संख्या: {profile.bank_account_number}\nIFSC कोड: {profile.bank_ifsc_code}\n\nआप अब सीधे अपने सेलर हब से उत्पाद लाइव कर सकते हैं।",
-                            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@orbiskart.com'),
-                            recipient_list=[business_email],
-                            fail_silently=True,
-                        )
-                    except Exception:
-                        pass
-
             return Response({
                 'success': True,
-                'message': 'सेलर प्रोफ़ाइल सफलतापूर्वक पंजीकृत हो गई है!',
+                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया!',
                 'access_token': access_token,
                 'user_id': user.id,
                 'username': user.username,
@@ -1085,8 +1074,6 @@ class SellerRegisterAPIView(APIView):
 
         except Exception as e:
             return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 # --- 16. Seller Profile, Address & Bank Self-Service Update API ---
 class SellerProfileUpdateAPIView(APIView):
     permission_classes = [permissions.AllowAny]
