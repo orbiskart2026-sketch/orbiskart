@@ -979,7 +979,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Complete Seller Onboarding & Independent User Creation ---
+# store/views.py के SellerRegisterAPIView में:
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -993,15 +993,16 @@ class SellerRegisterAPIView(APIView):
             business_email = data.get('business_email', '').strip()
             password = data.get('password', '').strip() or 'OrbisSeller@2026'
 
-            if not store_name or not owner_name or not contact_number:
-                return Response({'error': 'दुकान का नाम, मालिक का नाम और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
+            if not store_name or not owner_name or not contact_number or not business_email:
+                return Response({'error': 'दुकान का नाम, मालिक का नाम, ईमेल और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # यूजरनेम दुकान के नाम से बनाएं (उदा: orbiskart)
-            base_username = "".join(e for e in store_name.lower() if e.isalnum()) or f"seller_{contact_number[-4:]}"
+            # दुकान के नाम या मालिक के नाम से User ID तैयार करना
+            clean_store = "".join(e for e in store_name.lower() if e.isalnum())
+            clean_owner = "_".join(owner_name.lower().split())
+            base_username = clean_store or clean_owner or f"seller_{contact_number[-4:]}"
             username = base_username
 
             with transaction.atomic():
-                # यदि यूजर पहले से है तो नया यूजरनेम बनाएं ताकि पुराना एडमिन ओवरराइट न हो
                 counter = 1
                 while User.objects.filter(username=username).exists():
                     existing_user = User.objects.get(username=username)
@@ -1011,7 +1012,6 @@ class SellerRegisterAPIView(APIView):
                     username = f"{base_username}_{counter}"
                     counter += 1
                 else:
-                    # बिल्कुल नया स्वतंत्र सेलर यूज़र बनाएं
                     user = User.objects.create_user(
                         username=username,
                         email=business_email,
@@ -1019,7 +1019,6 @@ class SellerRegisterAPIView(APIView):
                         first_name=owner_name
                     )
 
-                # वेंडर प्रोफाइल बनाएं
                 profile, _ = VendorProfile.objects.get_or_create(user=user)
                 profile.store_name = store_name
                 profile.contact_number = contact_number
@@ -1059,9 +1058,42 @@ class SellerRegisterAPIView(APIView):
                 refresh = RefreshToken.for_user(user)
                 access_token = str(refresh.access_token)
 
+                # orbiskart2026@gmail.com से बधाई व क्रेडेंशियल्स ईमेल भेजना
+                email_subject = f"🎉 बधाई! आपकी दुकान '{store_name}' OrbisKart पर सक्रिय हो गई है"
+                email_body = (
+                    f"नमस्ते {owner_name},\n\n"
+                    f"बधाई हो! आपकी दुकान '{store_name}' OrbisKart विक्रेता मंच पर सफलतापूर्वक पंजीकृत व सत्यापित हो गई है।\n\n"
+                    f"--- आपके सेलर लॉगिन क्रेडेंशियल्स ---\n"
+                    f"दुकान का नाम: {store_name}\n"
+                    f"सेलर User ID: {username}\n"
+                    f"लॉगिन पासवर्ड: {password}\n"
+                    f"पंजीकृत ईमेल: {business_email}\n"
+                    f"मोबाइल नंबर: {contact_number}\n"
+                    f"सेलर लॉगिन पोर्टल: https://www.orbiskart.com/seller/login\n\n"
+                    f"--- सत्यापित बैंकिंग विवरण ---\n"
+                    f"बैंक का नाम: {profile.bank_name}\n"
+                    f"खाता संख्या: {profile.bank_account_number}\n"
+                    f"IFSC कोड: {profile.bank_ifsc_code}\n\n"
+                    f"आप अब सीधे अपने सेलर पोर्टल पर जाकर उत्पाद लाइव कर सकते हैं।\n\n"
+                    f"सादर,\n"
+                    f"OrbisKart Merchant Support Desk\n"
+                    f"ईमेल: orbiskart2026@gmail.com"
+                )
+
+                try:
+                    send_mail(
+                        subject=email_subject,
+                        message=email_body,
+                        from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'OrbisKart <orbiskart2026@gmail.com>'),
+                        recipient_list=[business_email],
+                        fail_silently=True,
+                    )
+                except Exception:
+                    pass
+
             return Response({
                 'success': True,
-                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया!',
+                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया और ईमेल भेज दिया गया है!',
                 'access_token': access_token,
                 'user_id': user.id,
                 'username': user.username,
