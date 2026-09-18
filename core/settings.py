@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+import dj_database_url
 
 # Base directory
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -69,12 +70,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# --- Database ---
+# --- Permanent Database Configuration (PostgreSQL / SQLite Fallback) ---
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+        conn_max_age=600,
+        ssl_require=True
+    )
 }
 
 # --- Password validation ---
@@ -108,7 +110,13 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # --- Email Setup ---
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'orbiskart2026@gmail.com')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', f"OrbisKart <{EMAIL_HOST_USER}>")
 
 # --- REST Framework & JWT Setup ---
 REST_FRAMEWORK = {
@@ -136,7 +144,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-# Vercel के सभी सब-डोमेन को स्वीकार करने के लिए
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https:\/\/.*\.vercel\.app$",
 ]
@@ -158,7 +165,7 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
-    "x-cron-secret",       # T+3 ऑटो-सेटलमेंट शेड्यूलर हेडर
+    "x-cron-secret",
 ]
 
 # =======================================================
@@ -166,14 +173,5 @@ CORS_ALLOW_HEADERS = [
 # =======================================================
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
-RAZORPAYX_ACCOUNT_NUMBER = os.getenv('RAZORPAYX_ACCOUNT_NUMBER', '')  # RazorpayX Virtual/Current Account Number
+RAZORPAYX_ACCOUNT_NUMBER = os.getenv('RAZORPAYX_ACCOUNT_NUMBER', '')
 CRON_SECRET_KEY = os.getenv('CRON_SECRET_KEY', 'ORBIS_CRON_SETTLE_2026')
-import os
-
-EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'orbiskart2026@gmail.com')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', f"OrbisKart <{EMAIL_HOST_USER}>")
