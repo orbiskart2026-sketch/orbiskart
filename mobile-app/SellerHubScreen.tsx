@@ -5,33 +5,63 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  Image,
-  Linking,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
+
+const API_BASE_URL = "https://orbiskart.onrender.com/api/";
 
 export default function SellerHubScreen() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // मॉक अथवा वास्तविक API फेच
-    setTimeout(() => {
-      setData({
-        store_name: "श्री बालाजी इलेक्ट्रॉनिक्स",
-        is_approved: true,
-        is_orbiskart_mall: true,
-        wallet_balance: "48,520.00",
-        quality_score: "4.9",
-        orders_summary: { total: 142, delivered: 135, returns: 4 },
-        banking: { bank_name: "HDFC Bank", account_masked: "XXXXXX8912", ifsc: "HDFC0001245" },
-        support: { it_call_no: "+9118008892026", ref_no: "REF-ORB-9981" }
+    fetch(`${API_BASE_URL}seller-profile/`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('सर्वर से डेटा प्राप्त करने में विफल (Server Error)');
+        }
+        return response.json();
+      })
+      .then((result) => {
+        setData(result);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('API Fetch Error:', err);
+        setError('सर्वर से जुड़ने में समस्या हुई, कृपया पुनः प्रयास करें।');
+        setLoading(false);
       });
-      setLoading(false);
-    }, 600);
   }, []);
 
-  if (loading) return <ActivityIndicator color="#6366f1" style={{ flex: 1 }} />;
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#6366f1" />
+        <Text style={styles.loadingText}>लाइव डेटा लोड हो रहा है...</Text>
+      </View>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>{error || 'डेटा उपलब्ध नहीं है।'}</Text>
+        <TouchableOpacity 
+          style={styles.retryBtn} 
+          onPress={() => { setLoading(true); setError(null); }}
+        >
+          <Text style={styles.retryText}>पुनः प्रयास करें</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -39,38 +69,38 @@ export default function SellerHubScreen() {
       <View style={styles.profileHeader}>
         <View style={{ flex: 1 }}>
           <View style={styles.rowAlign}>
-            <Text style={styles.storeTitle}>{data.store_name}</Text>
+            <Text style={styles.storeTitle}>{data.store_name || "OrbisKart Seller"}</Text>
             {data.is_approved && <Text style={styles.verifiedBadge}>✓ Verified</Text>}
           </View>
           {data.is_orbiskart_mall && (
             <Text style={styles.mallTag}>🏬 OrbisKart Mall Certified Partner</Text>
           )}
-          <Text style={styles.qualityText}>गुणवत्ता रेटिंग (Quality Check): ⭐ {data.quality_score}/5.0</Text>
+          <Text style={styles.qualityText}>गुणवत्ता रेटिंग (Quality Check): ⭐ {data.quality_score || "5.0"}/5.0</Text>
         </View>
       </View>
 
       {/* 2. बैंक बैलेंस व पेआउट कार्ड */}
       <View style={styles.balanceCard}>
         <Text style={styles.balanceSub}>उपलब्ध बैंक पेआउट बैलेंस</Text>
-        <Text style={styles.balanceAmount}>₹{data.wallet_balance}</Text>
+        <Text style={styles.balanceAmount}>₹{data.wallet_balance || "0.00"}</Text>
         <View style={styles.bankRow}>
-          <Text style={styles.bankText}>खाता: {data.banking.bank_name} ({data.banking.account_masked})</Text>
-          <Text style={styles.bankText}>IFSC: {data.banking.ifsc}</Text>
+          <Text style={styles.bankText}>खाता: {data.banking?.bank_name || "N/A"} ({data.banking?.account_masked || "XXXX"})</Text>
+          <Text style={styles.bankText}>IFSC: {data.banking?.ifsc || "N/A"}</Text>
         </View>
       </View>
 
       {/* 3. ऑर्डर्स व रिटर्न विश्लेषण */}
       <View style={styles.statsGrid}>
         <View style={styles.statBox}>
-          <Text style={styles.statNum}>{data.orders_summary.total}</Text>
+          <Text style={styles.statNum}>{data.orders_summary?.total || 0}</Text>
           <Text style={styles.statLabel}>कुल ऑर्डर्स</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={[styles.statNum, { color: '#34d399' }]}>{data.orders_summary.delivered}</Text>
+          <Text style={[styles.statNum, { color: '#34d399' }]}>{data.orders_summary?.delivered || 0}</Text>
           <Text style={styles.statLabel}>डिलीवर हुए</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={[styles.statNum, { color: '#f87171' }]}>{data.orders_summary.returns}</Text>
+          <Text style={[styles.statNum, { color: '#f87171' }]}>{data.orders_summary?.returns || 0}</Text>
           <Text style={styles.statLabel}>रिटर्न (RTO)</Text>
         </View>
       </View>
@@ -99,12 +129,12 @@ export default function SellerHubScreen() {
       {/* 6. प्रायोरिटी IT कॉल व रेफरेंस सपोर्ट */}
       <View style={styles.supportCard}>
         <Text style={styles.supportTitle}>📞 सेलर हेल्पलाइन एवं तत्काल IT सपोर्ट</Text>
-        <Text style={styles.supportText}>रेफरेंस टिकट: {data.support.ref_no}</Text>
+        <Text style={styles.supportText}>रेफरेंस टिकट: {data.support?.ref_no || "REF-ORB-2026"}</Text>
         <TouchableOpacity 
           style={styles.callBtn}
-          onPress={() => Linking.openURL(`tel:${data.support.it_call_no}`)}
+          onPress={() => Linking.openURL(`tel:${data.support?.it_call_no || '+9118008892026'}`)}
         >
-          <Text style={styles.callBtnText}>डायरेक्ट कॉल: {data.support.it_call_no}</Text>
+          <Text style={styles.callBtnText}>डायरेक्ट कॉल: {data.support?.it_call_no || '+91 1800 889 2026'}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -113,6 +143,11 @@ export default function SellerHubScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#020617', padding: 14 },
+  centerContainer: { flex: 1, backgroundColor: '#020617', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  loadingText: { color: '#94a3b8', marginTop: 10, fontSize: 14 },
+  errorText: { color: '#f87171', fontSize: 14, textAlign: 'center', marginBottom: 15 },
+  retryBtn: { backgroundColor: '#6366f1', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  retryText: { color: '#ffffff', fontWeight: 'bold' },
   profileHeader: { backgroundColor: '#0f172a', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#1e293b', marginBottom: 12 },
   rowAlign: { flexDirection: 'row', alignItems: 'center' },
   storeTitle: { color: '#f8fafc', fontSize: 18, fontWeight: 'bold' },
