@@ -20,7 +20,14 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-o7twl4#10(t**i!#zsoea2*d5m
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 # डोमेन लिस्टिंग (.env से)
-ALLOWED_HOSTS = ['orbiskart.onrender.com', 'localhost', '127.0.0.1', '.onrender.com']
+ALLOWED_HOSTS = [
+    'orbiskart.onrender.com',
+    'www.orbiskart.com',
+    'orbiskart.com',
+    'localhost',
+    '127.0.0.1',
+    '.onrender.com'
+]
 
 # --- Application definition ---
 INSTALLED_APPS = [
@@ -70,14 +77,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-import dj_database_url
-
 # --- Permanent Database Configuration with Local Safe Fallback ---
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL'),
         conn_max_age=600,
-        ssl_require=os.getenv('RENDER', False)  # Render पर True रहेगा, लोकल पर Safe रहेगा
+        ssl_require=os.getenv('RENDER', False)
     )
 }
 
@@ -142,6 +147,7 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "https://orbiskart.com",
     "https://www.orbiskart.com",
+    "https://orbiskart.onrender.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
