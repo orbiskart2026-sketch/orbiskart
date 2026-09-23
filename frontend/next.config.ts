@@ -1,12 +1,12 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
   },
-  // --- महत्वपूर्ण: फ्रंटएंड की API रिक्वेस्ट को सीधे Render बैकएंड पर भेजने के लिए Rewrites ---
   async rewrites() {
     return [
       {
