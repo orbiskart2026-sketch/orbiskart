@@ -98,13 +98,26 @@ class RegisterAPIView(APIView):
         return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Multi-Image Upload API ---
+# --- 2. Product List & Multi-Image Upload API (With All 20 Categories) ---
 class ProductListView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         try:
+            # स्वतः डिफ़ॉल्ट 20 श्रेणियां सुनिश्चित करना यदि डेटाबेस खाली हो
+            default_categories = [
+                "Electronics & Speakers", "Mobile & Accessories", "Fashion & Clothing", 
+                "Footwear & Shoes", "Home & Kitchen Appliances", "Grocery & Daily Needs", 
+                "Beauty & Personal Care", "Sports, Fitness & Toys", "Books, Stationery & Office", 
+                "Automotive & Tools", "Health & Wellness", "Furniture & Decor", 
+                "Jewellery & Watches", "Baby & Kids Care", "Computers & Laptops", 
+                "Gaming & VR", "Pet Supplies", "Industrial & Scientific", 
+                "Garden & Outdoor", "Gifting & Festive Items"
+            ]
+            for cat_name in default_categories:
+                Category.objects.get_or_create(name=cat_name)
+
             queryset = Product.objects.select_related('category', 'category_policy', 'vendor').prefetch_related('additional_images').all()
 
             show_all = request.query_params.get('show_all', 'false').lower() == 'true'
@@ -131,6 +144,8 @@ class ProductListView(APIView):
                 queryset = queryset.order_by('-id')
 
             serializer = ProductSerializer(queryset, many=True, context={'request': request})
+            
+            # सभी श्रेणियों को ड्रॉपडाउन के लिए भेजना
             categories = Category.objects.all().values('id', 'name')
 
             return Response({
@@ -156,8 +171,6 @@ class ProductListView(APIView):
             pkg_h = data.get('package_height_cm', 5.0)
             hsn_code = data.get('hsn_code', '851830')
             gst_rate = data.get('gst_rate', '18.00')
-            color = data.get('color', '')
-            mfg_date = data.get('mfg_date') or None
 
             primary_image = request.FILES.get('image')
             package_photo = request.FILES.get('package_photo')
@@ -209,10 +222,6 @@ class ProductListView(APIView):
                     product.hsn_code = hsn_code
                 if hasattr(product, 'gst_rate'):
                     product.gst_rate = Decimal(str(gst_rate))
-                if hasattr(product, 'color'):
-                    product.color = color
-                if hasattr(product, 'mfg_date'):
-                    product.mfg_date = mfg_date
                 product.save()
 
                 gallery_files = request.FILES.getlist('gallery_images') or request.FILES.getlist('extra_images')
@@ -230,9 +239,6 @@ class ProductListView(APIView):
                 'product_id': product.id,
                 'title': product.title,
                 'price': str(product.price),
-                'original_price': str(product.original_price),
-                'category': category_obj.name if category_obj else 'None',
-                'gallery_count': len(gallery_files) if gallery_files else 0,
                 'is_active': product.is_active
             }, status=status.HTTP_201_CREATED)
 
@@ -865,11 +871,7 @@ class UtilityBillEngineView(APIView):
             user=request.user if request.user.is_authenticated else None,
             service_type=service,
             gross_amount=amount,
-            gateway_fee=(amount * Decimal('0.015')).quantize(Decimal('0.01')),
-            platform_commission=Decimal('2.00'),
-            operator_ref=operator_ref,
-            status='SUCCESS',
-            ip_address=request.META.get('REMOTE_ADDR')
+            status='SUCCESS'
         )
 
         return Response({
@@ -979,7 +981,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 15. Seller Registration API (100% Guaranteed Database Save) ---
+# --- 15. Seller Registration API (100% Guaranteed Database Save & Signal Compatible) ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -988,26 +990,25 @@ class SellerRegisterAPIView(APIView):
         try:
             data = request.data
             store_name = data.get('store_name', '').strip()
-            owner_name = data.get('owner_name', '').strip()
-            contact_number = data.get('contact_number', '').strip()
-            business_email = data.get('business_email', '').strip()
+            owner_name = data.get('owner_name', '').strip() or data.get('username', '').strip()
+            contact_number = data.get('contact_number', '').strip() or data.get('phone_number', '').strip()
+            business_email = data.get('business_email', '').strip() or data.get('email', '').strip()
             password = data.get('password', '').strip() or 'OrbisSeller@2026'
+            username = data.get('username', '').strip()
 
             if not store_name or not contact_number or not business_email:
-                return Response({'error': 'Dukan ka naam, mobile aur email anivarya hain.'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'दुकान का नाम, मोबाइल नंबर और ईमेल दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
 
-            clean_store = "".join(e for e in store_name.lower() if e.isalnum())
-            username = clean_store or f"seller_{contact_number[-4:]}"
+            if not username:
+                clean_store = "".join(e for e in store_name.lower() if e.isalnum())
+                username = clean_store or f"seller_{contact_number[-4:]}"
+
+            if User.objects.filter(username=username).exists():
+                return Response({'error': 'यह यूजरनेम या सेलर अकाउंट पहले से मौजूद है।'}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                user, created = User.objects.get_or_create(
-                    username=username,
-                    defaults={'email': business_email, 'first_name': owner_name}
-                )
-                if password:
-                    user.set_password(password)
-                    user.save()
-
+                user = User.objects.create_user(username=username, email=business_email, password=password, first_name=owner_name)
+                
                 profile, _ = VendorProfile.objects.get_or_create(user=user)
                 profile.store_name = store_name
                 profile.contact_number = contact_number
@@ -1017,21 +1018,23 @@ class SellerRegisterAPIView(APIView):
                 profile.state = data.get('state', 'Jharkhand').strip()
                 profile.pincode = data.get('pincode', '').strip()
                 profile.pan_number = data.get('pan_number', '').strip()
+                profile.gstin = data.get('gstin', '').strip()
                 profile.bank_name = data.get('bank_name', 'State Bank of India').strip()
-                profile.bank_account_number = data.get('bank_account_number', '').strip()
-                profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
-                profile.is_approved = True
+                profile.bank_account_number = data.get('bank_account_number', '').strip() or data.get('bank_acc', '').strip()
+                profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper() or data.get('ifsc', '').strip().upper()
+                profile.is_approved = True  # तुरंत लाइव करने के लिए True
                 profile.save()
 
             return Response({
                 'success': True,
-                'message': f'Dukan {store_name} safalataपूर्वक register ho gayi hai!',
+                'message': f'दुकान "{store_name}" सफलतापूर्वक रजिस्टर हो गई है!',
                 'username': user.username,
+                'vendor_id': profile.id,
                 'store_name': profile.store_name
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # --- 16. Seller Profile, Address & Bank Self-Service Update API ---
@@ -1241,3 +1244,59 @@ class ProcessAutomatedT3SettlementView(APIView):
             'message': f'T+3 सेटलमेंट निष्पादित: {settled_count} ऑर्डर्स का भुगतान सेलर्स के खाते में लॉक हुआ।',
             'processed_orders': settled_count
         }, status=status.HTTP_200_OK)
+
+
+# --- 20. Product Onboarding API (Integrated with Approval & Multi-Fields) ---
+class ProductOnboardAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        try:
+            data = request.data
+            vendor_id = data.get('vendor_id')
+            title = data.get('title', '').strip()
+            price = data.get('price')
+
+            if not title or not price:
+                return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+
+            vendor = None
+            if vendor_id:
+                vendor = VendorProfile.objects.filter(id=vendor_id).first()
+            elif request.user.is_authenticated:
+                vendor = getattr(request.user, 'vendor_profile', None) or VendorProfile.objects.filter(user=request.user).first()
+
+            if not vendor:
+                vendor = VendorProfile.objects.order_by('-id').first()
+
+            if not vendor:
+                return Response({'error': 'कोई सेलर या वेंडर प्रोफ़ाइल नहीं मिली। पहले रजिस्टर करें।'}, status=status.HTTP_404_NOT_FOUND)
+
+            if not vendor.is_approved:
+                return Response({'error': 'आपका अकाउंट अभी कंपनी द्वारा स्वीकृत (Approved) नहीं है।'}, status=status.HTTP_403_FORBIDDEN)
+
+            with transaction.atomic():
+                product = Product.objects.create(
+                    vendor=vendor,
+                    seller=vendor.user,
+                    title=title,
+                    description=data.get('description', ''),
+                    price=Decimal(str(price)),
+                    original_price=Decimal(str(data.get('original_price') or price)),
+                    stock=int(data.get('stock', 10)),
+                    weight_grams=int(data.get('weight_grams', 300)),
+                    hsn_code=data.get('hsn_code', '851830'),
+                    is_active=True,
+                    image=request.FILES.get('image')
+                )
+
+            return Response({
+                'success': True,
+                'message': 'उत्पाद सफलतापूर्वक ऑनबोर्ड और लाइव हो गया है!',
+                'product_id': product.id,
+                'title': product.title
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': f'ऑनबोर्डिंग त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

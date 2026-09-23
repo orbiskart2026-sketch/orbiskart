@@ -80,7 +80,6 @@ class VendorProfile(models.Model):
 @receiver(post_save, sender=User)
 def create_seller_profile_automatically(sender, instance, created, **kwargs):
     if created:
-        # यूनिक स्टोर नेम जनरेट करना ताकि डुप्लीकेट एरर न आए
         base_store_name = f"{instance.username}_store"
         store_name = base_store_name
         counter = 1
@@ -371,15 +370,3 @@ class ImmutableMasterTransaction(models.Model):
 
     def __str__(self):
         return f"{self.tx_id} - ₹{self.gross_amount}"
-    from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-@receiver(post_save, sender=User)
-def create_vendor_profile(sender, instance, created, **kwargs):
-    if created and not hasattr(instance, 'vendor_profile'):
-        VendorProfile.objects.create(
-            user=instance,
-            store_name=f"{instance.username} Store",
-            business_email=instance.email or f"{instance.username}@orbiskart.com",
-            contact_number="9999999999"
-        )
