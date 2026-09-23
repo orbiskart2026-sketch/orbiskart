@@ -164,13 +164,18 @@ class ShippingRateCard(models.Model):
         return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
 
 
+from decimal import Decimal
+from django.db import models
+from django.contrib.auth.models import User
+from django.utils import timezone
+
 # --- 6. Transparent Product Model ---
 class Product(models.Model):
-    vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    vendor = models.ForeignKey('VendorProfile', on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
-    category_policy = models.ForeignKey(CategoryPolicy, on_delete=models.SET_NULL, null=True, blank=True)
-    hsn_record = models.ForeignKey(GovtHSNMaster, on_delete=models.SET_NULL, null=True, blank=True)
+    category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    category_policy = models.ForeignKey('CategoryPolicy', on_delete=models.SET_NULL, null=True, blank=True)
+    hsn_record = models.ForeignKey('GovtHSNMaster', on_delete=models.SET_NULL, null=True, blank=True)
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -203,6 +208,24 @@ class Product(models.Model):
             self.gst_rate = self.category_policy.gst_rate
         super().save(*args, **kwargs)
 
+    def calculate_transparency_ledger(self):
+        """
+        Live Financial Transparency Audit & Ledger Calculation
+        """
+        price = float(getattr(self, 'price', 0))
+        gst = round(price * float(self.gst_rate) / 100.0, 2) if self.gst_rate else round(price * 0.18, 2)
+        delivery = 50.0  # standard or weight based delivery fee
+        gateway_fee = round(price * 0.02, 2)
+        net_credit = round(price - (gst + delivery + gateway_fee), 2)
+        
+        return {
+            "gross_price": price,
+            "gst": gst,
+            "delivery": delivery,
+            "gateway_fee": gateway_fee,
+            "net_credit": net_credit
+        }
+
     def __str__(self):
         return f"{self.title} (₹{self.price})"
 
@@ -214,8 +237,6 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.product.title}"
-
-
 # --- 7. Cart & Items ---
 class Cart(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
