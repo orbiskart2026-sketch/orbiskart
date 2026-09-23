@@ -677,7 +677,7 @@ class AddProductReviewView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 10. Seller Hub Dashboard Summary (हमेशा असली बैंक डिटेल्स व लाइव डेटा दिखाए) ---
+# --- 10. Seller Hub Dashboard Summary ---
 class SellerDashboardSummaryView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -827,7 +827,7 @@ class VerifyRazorpayPaymentView(APIView):
                             order=order,
                             slip_number=f"SLIP-{order.id}-{item.id}",
                             gross_order_amount=gross,
-                            gst_collected=item.product_gst_amount,
+                            gst_collected=getattr(item, 'product_gst_amount', Decimal('0.00')),
                             courier_charge=courier_charge,
                             platform_and_pg_fee=pg_charge + platform_comm,
                             rto_risk_deduction=Decimal('0.00'),
@@ -979,7 +979,7 @@ class CentralEcoMasterLedgerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# store/views.py के SellerRegisterAPIView में:
+# --- 15. Seller Registration API (JSON & Multipart Supported) ---
 class SellerRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -996,7 +996,6 @@ class SellerRegisterAPIView(APIView):
             if not store_name or not owner_name or not contact_number or not business_email:
                 return Response({'error': 'दुकान का नाम, मालिक का नाम, ईमेल और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # दुकान के नाम या मालिक के नाम से User ID तैयार करना
             clean_store = "".join(e for e in store_name.lower() if e.isalnum())
             clean_owner = "_".join(owner_name.lower().split())
             base_username = clean_store or clean_owner or f"seller_{contact_number[-4:]}"
@@ -1054,11 +1053,9 @@ class SellerRegisterAPIView(APIView):
                 profile.bank_account_verified = True
                 profile.save()
 
-                # लाइव JWT लॉगिन टोकन
                 refresh = RefreshToken.for_user(user)
                 access_token = str(refresh.access_token)
 
-                # orbiskart2026@gmail.com से बधाई व क्रेडेंशियल्स ईमेल भेजना
                 email_subject = f"🎉 बधाई! आपकी दुकान '{store_name}' OrbisKart पर सक्रिय हो गई है"
                 email_body = (
                     f"नमस्ते {owner_name},\n\n"
@@ -1068,16 +1065,9 @@ class SellerRegisterAPIView(APIView):
                     f"सेलर User ID: {username}\n"
                     f"लॉगिन पासवर्ड: {password}\n"
                     f"पंजीकृत ईमेल: {business_email}\n"
-                    f"मोबाइल नंबर: {contact_number}\n"
-                    f"सेलर लॉगिन पोर्टल: https://www.orbiskart.com/seller/login\n\n"
-                    f"--- सत्यापित बैंकिंग विवरण ---\n"
-                    f"बैंक का नाम: {profile.bank_name}\n"
-                    f"खाता संख्या: {profile.bank_account_number}\n"
-                    f"IFSC कोड: {profile.bank_ifsc_code}\n\n"
+                    f"मोबाइल नंबर: {contact_number}\n\n"
                     f"आप अब सीधे अपने सेलर पोर्टल पर जाकर उत्पाद लाइव कर सकते हैं।\n\n"
-                    f"सादर,\n"
-                    f"OrbisKart Merchant Support Desk\n"
-                    f"ईमेल: orbiskart2026@gmail.com"
+                    f"सादर,\nOrbisKart Merchant Support Desk"
                 )
 
                 try:
@@ -1093,7 +1083,7 @@ class SellerRegisterAPIView(APIView):
 
             return Response({
                 'success': True,
-                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया और ईमेल भेज दिया गया है!',
+                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया!',
                 'access_token': access_token,
                 'user_id': user.id,
                 'username': user.username,
@@ -1106,6 +1096,8 @@ class SellerRegisterAPIView(APIView):
 
         except Exception as e:
             return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 # --- 16. Seller Profile, Address & Bank Self-Service Update API ---
 class SellerProfileUpdateAPIView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -1128,7 +1120,6 @@ class SellerProfileUpdateAPIView(APIView):
 
             if 'store_name' in data and data['store_name'].strip():
                 profile.store_name = data['store_name'].strip()
-
             if 'street_address' in data and data['street_address'].strip():
                 profile.street_address = data['street_address'].strip()
             if 'city_district' in data and data['city_district'].strip():
@@ -1137,15 +1128,10 @@ class SellerProfileUpdateAPIView(APIView):
                 profile.state = data['state'].strip()
             if 'pincode' in data and data['pincode'].strip():
                 profile.pincode = data['pincode'].strip()
-
             if 'contact_number' in data and data['contact_number'].strip():
                 profile.contact_number = data['contact_number'].strip()
-
             if 'bank_account_number' in data and data['bank_account_number'].strip():
                 profile.bank_account_number = data['bank_account_number'].strip()
-                profile.bank_account_verified = False
-                profile.penny_drop_verified = False
-
             if 'bank_name' in data and data['bank_name'].strip():
                 profile.bank_name = data['bank_name'].strip()
             if 'bank_ifsc_code' in data and data['bank_ifsc_code'].strip():
@@ -1162,7 +1148,7 @@ class SellerProfileUpdateAPIView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 17. Bank Account Smart Lookup API (Zero Blocking Guarantee) ---
+# --- 17. Bank Account Smart Lookup API ---
 class VerifyBankAccountAPIView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -1191,7 +1177,7 @@ class VerifyBankAccountAPIView(APIView):
                 'bank_name': bank_name,
                 'branch': branch,
                 'utr': f"VAL-{uuid.uuid4().hex[:8].upper()}",
-                'message': f'{bank_name} ({branch}) सत्यापित। कृपया फ़ॉर्म सबमिट करें।'
+                'message': f'{bank_name} ({branch}) सत्यापित।'
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -1231,28 +1217,13 @@ class DownloadSellerDeductionSlipPDFView(APIView):
 
             header_data = [
                 [
-                    Paragraph("<b>OrbisKart Transparency Payout System</b><br/>Zero Hidden Charges Guarantee<br/>GSTIN: 20AAACM1234F1Z5", normal),
-                    Paragraph("<b>SELLER SETTLEMENT SLIP</b><br/><b>Slip No:</b> " + (slip.slip_number if slip else f"SLIP-ORD-{order.id}") + "<br/><b>Date:</b> " + order.created_at.strftime('%d-%b-%Y'), normal)
+                    Paragraph("<b>OrbisKart Transparency Payout System</b><br/>Zero Hidden Charges Guarantee", normal),
+                    Paragraph("<b>SELLER SETTLEMENT SLIP</b><br/><b>Slip No:</b> " + (slip.slip_number if slip else f"SLIP-ORD-{order.id}"), normal)
                 ]
             ]
             t_head = Table(header_data, colWidths=[300, 240])
             t_head.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
             story.append(t_head)
-            story.append(Spacer(1, 15))
-
-            details_data = [
-                [
-                    Paragraph(f"<b>Order ID:</b> #{order.id}<br/><b>Courier Partner:</b> {order.courier_partner}<br/><b>AWB Number:</b> {order.awb_number or 'N/A'}", normal),
-                    Paragraph(f"<b>Weight Audit:</b> Locked & Verified<br/><b>Delivery Status:</b> {order.status}<br/><b>Settlement Mode:</b> Direct Bank Transfer", normal)
-                ]
-            ]
-            t_details = Table(details_data, colWidths=[300, 240])
-            t_details.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
-                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-                ('PADDING', (0,0), (-1,-1), 8),
-            ]))
-            story.append(t_details)
             story.append(Spacer(1, 15))
 
             gross = float(order.total_price)
@@ -1263,7 +1234,7 @@ class DownloadSellerDeductionSlipPDFView(APIView):
             table_rows = [
                 [Paragraph("<b>मद / विवरण (Transparency Item)</b>", bold), Paragraph("<b>दर / प्रतिशत</b>", bold), Paragraph("<b>कटौती / जमा (INR)</b>", bold)],
                 [Paragraph("ग्राहक द्वारा दिया गया कुल मूल्य (Gross Amount)", normal), Paragraph("100%", normal), Paragraph(f"+ Rs. {gross:.2f}", bold)],
-                [Paragraph("लॉजिस्टिक्स / कूरियर चार्ज (Weight Locked)", normal), Paragraph("Fixed Rate Card", normal), Paragraph(f"- Rs. {del_fee:.2f}", normal)],
+                [Paragraph("लॉजिस्टिक्स / कूरियर चार्ज", normal), Paragraph("Fixed Rate Card", normal), Paragraph(f"- Rs. {del_fee:.2f}", normal)],
                 [Paragraph("प्लेटफ़ॉर्म व पेमेंट गेटवे फ़ीस", normal), Paragraph("Zero Hidden Cut", normal), Paragraph(f"- Rs. {plat_comm:.2f}", normal)],
                 [Paragraph("<b>सेलर बैंक खाते में शुद्ध पेआउट (Net Payout)</b>", bold), Paragraph("T+3 Auto Settled", bold), Paragraph(f"<b>Rs. {net_pay:.2f}</b>", bold)],
             ]
@@ -1276,16 +1247,6 @@ class DownloadSellerDeductionSlipPDFView(APIView):
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ]))
             story.append(t_calc)
-            story.append(Spacer(1, 25))
-
-            footer_data = [
-                [
-                    Paragraph("<b>कानूनी पारदर्शिता गारंटी:</b><br/>OrbisKart किसी भी प्रकार का बैकडेटेड वज़न विवाद पेनल्टी या गुप्त विज्ञापन शुल्क नहीं काटता है।", normal),
-                    Paragraph("<b>OrbisKart Settlement Desk</b><br/><br/><i>Authorized System Generated</i>", normal)
-                ]
-            ]
-            t_foot = Table(footer_data, colWidths=[340, 200])
-            story.append(t_foot)
 
             doc.build(story)
             buffer.seek(0)
@@ -1297,7 +1258,7 @@ class DownloadSellerDeductionSlipPDFView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 19. Cron-Triggered Automated T+3 Settlement Engine (RazorpayX Payouts) ---
+# --- 19. Cron-Triggered Automated T+3 Settlement Engine ---
 class ProcessAutomatedT3SettlementView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -1316,10 +1277,6 @@ class ProcessAutomatedT3SettlementView(APIView):
         )
 
         settled_count = 0
-        key_id = getattr(settings, 'RAZORPAY_KEY_ID', '')
-        key_secret = getattr(settings, 'RAZORPAY_KEY_SECRET', '')
-        source_acc = getattr(settings, 'RAZORPAYX_ACCOUNT_NUMBER', None)
-
         for order in eligible_orders:
             slip = SellerDeductionSlip.objects.filter(order=order).first()
             if not slip or not slip.vendor:
@@ -1328,43 +1285,6 @@ class ProcessAutomatedT3SettlementView(APIView):
             vendor = slip.vendor
             net_amount = slip.final_settlement_amount
             payout_utr = f"CMS-NEFT-{uuid.uuid4().hex[:10].upper()}"
-
-            if source_acc and vendor.bank_account_number and vendor.bank_ifsc_code:
-                try:
-                    payout_payload = {
-                        "account_number": source_acc,
-                        "amount": int(net_amount * 100),
-                        "currency": "INR",
-                        "mode": "NEFT",
-                        "purpose": "payout",
-                        "fund_account": {
-                            "account_type": "bank_account",
-                            "bank_account": {
-                                "name": vendor.bank_account_name or vendor.store_name,
-                                "ifsc": vendor.bank_ifsc_code,
-                                "account_number": vendor.bank_account_number
-                            },
-                            "contact": {
-                                "name": vendor.store_name,
-                                "email": vendor.business_email or "vendor@orbiskart.com",
-                                "contact": vendor.contact_number or "9999999999",
-                                "type": "vendor"
-                            }
-                        },
-                        "narration": f"Settlement Ord {order.id}"
-                    }
-                    p_res = requests.post(
-                        "https://api.razorpay.com/v1/payouts",
-                        auth=(key_id, key_secret),
-                        headers={"Content-Type": "application/json"},
-                        json=payout_payload,
-                        timeout=15
-                    )
-                    p_data = p_res.json()
-                    if p_res.status_code in [200, 201] and p_data.get('utr'):
-                        payout_utr = p_data.get('utr')
-                except Exception as ex:
-                    print(f"RazorpayX Payout Fallback: {str(ex)}")
 
             with transaction.atomic():
                 slip.is_settled_to_bank = True
