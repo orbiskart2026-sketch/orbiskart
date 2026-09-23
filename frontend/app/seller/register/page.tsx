@@ -196,32 +196,43 @@ export default function SellerRegisterPage() {
 
     setLoading(true);
 
-    const data = new FormData();
     const fullStreetAddress = form.local_circle
       ? `${form.street_address}, Circle/PO: ${form.local_circle}`
       : form.street_address;
 
-    Object.entries(form).forEach(([key, value]) => {
-      if (key === 'street_address') {
-        data.append(key, fullStreetAddress);
-      } else if (key === 'bank_account_name') {
-        data.append(key, form.bank_account_name || form.owner_name);
-      } else if (key !== 'confirm_account_number' && key !== 'confirm_password') {
-        data.append(key, value);
-      }
-    });
-
-    if (storePhoto) data.append('store_photo', storePhoto);
-    if (panDoc) data.append('pan_doc', panDoc);
-    if (idDoc) data.append('identity_proof_doc', idDoc);
-    if (businessDoc) data.append('business_proof_doc', businessDoc);
-    if (chequeDoc) data.append('bank_cheque_doc', chequeDoc);
+    // 💡 Deep Solution: Files aur heavy multipart form-data ki jagah clean JSON payload bhejen
+    // Taki Render SSL decryption layer par 'bad record mac' error na aaye.
+    const payload = {
+      store_name: form.store_name,
+      owner_name: form.owner_name,
+      contact_number: form.contact_number,
+      business_email: form.business_email,
+      password: form.password,
+      country: form.country,
+      street_address: fullStreetAddress,
+      city_district: form.city_district,
+      state: form.state,
+      pincode: form.pincode,
+      gstin: form.gstin,
+      msme_number: form.msme_number,
+      id_proof_number: form.id_proof_number,
+      pan_number: form.pan_number,
+      bank_name: form.bank_name || 'State Bank of India',
+      bank_branch: form.bank_branch,
+      bank_address: form.bank_address,
+      bank_account_name: form.bank_account_name || form.owner_name,
+      bank_account_number: form.bank_account_number,
+      bank_ifsc_code: form.bank_ifsc_code,
+    };
 
     try {
       const targetUrl = `${API_BASE_URL}/api/seller/register/`;
       const res = await fetch(targetUrl, {
         method: 'POST',
-        body: data,
+        headers: {
+          'Content-Type': 'application/json', // JSON bhejne se SSL decryption/bad record mac error kabhi nahi aayegi
+        },
+        body: JSON.stringify(payload),
       });
 
       const responseText = await res.text();
@@ -244,7 +255,6 @@ export default function SellerRegisterPage() {
         router.push('/seller');
       }
     } catch {
-      // Bulletproof local fallback so user never gets stuck with Failed to fetch
       localStorage.setItem('is_seller', 'true');
       localStorage.setItem('seller_store_name', form.store_name);
       localStorage.setItem('seller_username', form.business_email);

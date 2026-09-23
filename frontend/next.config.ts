@@ -7,14 +7,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'https://orbiskart.onrender.com/api/:path*',
-      },
-    ];
-  },
 };
 
 export default nextConfig;
