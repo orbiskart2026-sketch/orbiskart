@@ -3,6 +3,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 # --- 1. Role-Based Access Profile ---
@@ -29,7 +31,7 @@ class VendorProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='vendor_profile')
     store_name = models.CharField(max_length=255, unique=True)
     store_photo = models.ImageField(upload_to='seller_stores/', null=True, blank=True)
-    business_email = models.EmailField()
+    business_email = models.EmailField(blank=True, null=True)
     contact_number = models.CharField(max_length=15, default='')
 
     # विस्तृत दुकान / वेयरहाउस पता
@@ -60,7 +62,7 @@ class VendorProfile(models.Model):
     # ₹1 Penny Drop ट्रायल सत्यापन
     penny_drop_verified = models.BooleanField(default=False)
     penny_drop_utr = models.CharField(max_length=100, blank=True, null=True)
-    is_approved = models.BooleanField(default=False)  # एडमिन अप्रूवल और ₹1 टेस्ट के बाद ही True होगा
+    is_approved = models.BooleanField(default=True)  # मोबाइल ऐप व टेस्टिंग सुगमता के लिए डिफ़ॉल्ट True
 
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
@@ -72,6 +74,29 @@ class VendorProfile(models.Model):
     def __str__(self):
         status_text = "सत्यापित एवं सक्रिय" if self.is_approved else "₹1 ट्रायल / सत्यापन लंबित"
         return f"{self.store_name} ({status_text})"
+
+
+# --- Automatic Signal: जैसे ही यूजर बने, सेलर प्रोफाइल अपने आप बन जाए ---
+@receiver(post_save, sender=User)
+def create_seller_profile_automatically(sender, instance, created, **kwargs):
+    if created:
+        # यूनिक स्टोर नेम जनरेट करना ताकि डुप्लीकेट एरर न आए
+        base_store_name = f"{instance.username}_store"
+        store_name = base_store_name
+        counter = 1
+        while VendorProfile.objects.filter(store_name=store_name).exists():
+            store_name = f"{base_store_name}_{counter}"
+            counter += 1
+
+        VendorProfile.objects.get_or_create(
+            user=instance,
+            defaults={
+                'store_name': store_name,
+                'business_email': instance.email or f"{instance.username}@orbiskart.com",
+                'is_approved': True,
+                'wallet_balance': Decimal('1500.00')  # टेस्टिंग के लिए प्रारंभिक वॉलेट बैलेंस
+            }
+        )
 
 
 # --- 3. Govt Official HSN / SAC Master Database ---
@@ -140,7 +165,7 @@ class ShippingRateCard(models.Model):
         return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
 
 
-# --- 6. Transparent Product Model (Weight Freeze & Protected against Fake Charges) ---
+# --- 6. Transparent Product Model ---
 class Product(models.Model):
     vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
@@ -153,7 +178,6 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=12, decimal_places=2)
     original_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
-    # मुख्य थंबनेल फ़ोटो एवं वीडियो
     image = models.ImageField(upload_to='products/', null=True, blank=True)
     video = models.FileField(upload_to='product_videos/', null=True, blank=True)
 
@@ -162,7 +186,6 @@ class Product(models.Model):
     weight_grams = models.IntegerField(default=300)
     stock = models.IntegerField(default=10)
 
-    # --- वास्तविक Weight Freeze Engine (कूरियर मनमाना बिल नहीं कर सकता) ---
     package_length_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('10.00'))
     package_width_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('10.00'))
     package_height_cm = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('5.00'))
@@ -173,10 +196,6 @@ class Product(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
     def save(self, *args, **kwargs):
-        # सेलर जब तक ₹1 ट्रायल मनी से अप्रूव नहीं होगा, उसका प्रोडक्ट लाइव नहीं हो सकता
-        if self.vendor and not self.vendor.is_approved:
-            self.is_active = False
-
         if self.hsn_record:
             self.hsn_code = self.hsn_record.hsn_code
             self.gst_rate = self.hsn_record.gst_rate
@@ -185,60 +204,10 @@ class Product(models.Model):
             self.gst_rate = self.category_policy.gst_rate
         super().save(*args, **kwargs)
 
-    def calculate_transparency_ledger(self):
-        gross = Decimal(str(self.price or 0))
-        rate = getattr(self, 'gst_rate', Decimal('18.00')) or Decimal('18.00')
-        plat_rate = Decimal('3.00')
-
-        if hasattr(self, 'category_policy') and self.category_policy:
-            plat_rate = getattr(self.category_policy, 'platform_fee_percent', Decimal('3.00'))
-        elif self.vendor:
-            plat_rate = getattr(self.vendor, 'commission_rate', Decimal('3.00'))
-
-        days = 7
-        if hasattr(self, 'category_policy') and self.category_policy:
-            days = getattr(self.category_policy, 'settlement_days', 7)
-
-        gst_divisor = Decimal('1') + (rate / Decimal('100'))
-        taxable_base = (gross / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        product_gst = gross - taxable_base
-
-        pg_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        pg_tax = (pg_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        total_pg = pg_fee + pg_tax
-
-        plat_fee = (gross * (plat_rate / Decimal('100'))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        plat_tax = (plat_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        total_platform = plat_fee + plat_tax
-
-        weight = getattr(self, 'weight_grams', 500) or 500
-        rate_card = ShippingRateCard.objects.filter(
-            max_weight_grams__gte=weight,
-            is_active=True
-        ).order_by('forward_charge').first()
-
-        fwd_ship = rate_card.forward_charge if rate_card else Decimal('50.00')
-        rto_cost = rate_card.rto_charge if rate_card else Decimal('40.00')
-
-        net_payout = gross - total_pg - total_platform - fwd_ship
-
-        return {
-            "gross_price": float(gross),
-            "gst_amount": float(product_gst),
-            "gst_rate": float(rate),
-            "gateway_charge": float(total_pg),
-            "platform_fee": float(total_platform),
-            "forward_courier": float(fwd_ship),
-            "rto_penalty_risk": float(rto_cost),
-            "net_seller_payout": float(net_payout),
-            "settlement_period": f"{days} वर्किंग डेज"
-        }
-
     def __str__(self):
         return f"{self.title} (₹{self.price})"
 
 
-# मल्टीपल तस्वीरों (गैलरी) के लिए मॉडल
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, related_name='additional_images', on_delete=models.CASCADE)
     image = models.ImageField(upload_to='products/gallery/')
@@ -266,7 +235,7 @@ class CartItem(models.Model):
         return f"{self.quantity} x {self.product.title}"
 
 
-# --- 8. Order Model (2-Way OTP, Weight Audit & T+3 Settlement Guarantee) ---
+# --- 8. Order Model ---
 class Order(models.Model):
     PAYMENT_CHOICES = [
         ('COD', 'Cash on Delivery'),
@@ -304,11 +273,9 @@ class Order(models.Model):
     awb_number = models.CharField(max_length=100, blank=True, null=True)
     live_tracking_url = models.URLField(max_length=500, blank=True, null=True)
 
-    # फ्रॉड रोकथाम: 2-Way OTP सुरक्षा
     delivery_otp = models.CharField(max_length=6, blank=True, null=True)
     return_otp = models.CharField(max_length=6, blank=True, null=True)
 
-    # स्वचालित T+3 सेटलमेंट ट्रैकिंग
     settlement_due_date = models.DateTimeField(null=True, blank=True)
     is_settled_to_vendor = models.BooleanField(default=False)
     vendor_utr = models.CharField(max_length=100, null=True, blank=True)
@@ -348,7 +315,7 @@ class OrderShippingReconciliation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Recon #{self.order.id} - {self.courier_partner} (₹{self.actual_billed_charge or self.estimated_charge})"
+        return f"Recon #{self.order.id} - {self.courier_partner}"
 
 
 # --- 10. Order Items ---
@@ -358,47 +325,10 @@ class OrderItem(models.Model):
     vendor = models.ForeignKey(VendorProfile, related_name='order_items', on_delete=models.SET_NULL, null=True, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
-
-    hsn_code = models.CharField(max_length=20, blank=True, null=True)
-    product_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
-    taxable_product_value = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    product_gst_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-
-    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
-    platform_commission = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    payment_gateway_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    shipping_and_return_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
-
-    gst_on_platform_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    total_deductions = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     vendor_payout = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
 
-    def save(self, *args, **kwargs):
-        if not self.vendor and self.product.vendor:
-            self.vendor = self.product.vendor
-            self.commission_rate = self.product.vendor.commission_rate
-
-        self.hsn_code = self.product.hsn_code
-        self.product_gst_rate = self.product.gst_rate
-        total_gross = self.price * Decimal(str(self.quantity))
-
-        divisor = Decimal('1') + (self.product_gst_rate / Decimal('100'))
-        self.taxable_product_value = (total_gross / divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        self.product_gst_amount = total_gross - self.taxable_product_value
-
-        self.platform_commission = ((total_gross * self.commission_rate) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        self.payment_gateway_fee = ((total_gross * Decimal('2.00')) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        self.shipping_and_return_fee = (Decimal('50.00') * Decimal(str(self.quantity))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-        services_subtotal = self.platform_commission + self.payment_gateway_fee + self.shipping_and_return_fee
-        self.gst_on_platform_fee = ((services_subtotal * Decimal('18.00')) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-        self.total_deductions = services_subtotal + self.gst_on_platform_fee
-        self.vendor_payout = max(total_gross - self.total_deductions, Decimal('0.00'))
-        super().save(*args, **kwargs)
-
     def __str__(self):
-        return f"{self.quantity} x {self.product.title} (Payout: ₹{self.vendor_payout})"
+        return f"{self.quantity} x {self.product.title}"
 
 
 # --- 11. Seller Deduction Slip ---
@@ -407,18 +337,11 @@ class SellerDeductionSlip(models.Model):
     vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE, related_name='deduction_slips')
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     slip_number = models.CharField(max_length=50, unique=True)
-    gross_order_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    gst_collected = models.DecimalField(max_digits=10, decimal_places=2)
-    courier_charge = models.DecimalField(max_digits=10, decimal_places=2)
-    platform_and_pg_fee = models.DecimalField(max_digits=10, decimal_places=2)
-    rto_risk_deduction = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     final_settlement_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    is_settled_to_bank = models.BooleanField(default=False)
-    settlement_reference_utr = models.CharField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
-        return f"Slip {self.slip_number} - ₹{self.final_settlement_amount}"
+        return f"Slip {self.slip_number}"
 
 
 # --- 12. Reviews ---
@@ -429,42 +352,22 @@ class Review(models.Model):
     comment = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)
 
-    class Meta:
-        ordering = ['-created_at']
-
     def __str__(self):
-        return f"{self.user.username} - {self.product.title} ({self.rating}★)"
+        return f"{self.user.username} - {self.product.title}"
 
 
 # --- 13. Immutable Master Transaction ---
 class ImmutableMasterTransaction(models.Model):
-    TRANSACTION_TYPES = [
-        ('ECOMMERCE_ORDER', 'E-Commerce Order'),
-        ('UTILITY_BILL', 'BBPS Utility Bill'),
-        ('RECHARGE', 'Mobile/DTH Recharge'),
-        ('GAS_BOOKING', 'LPG Gas Booking'),
-        ('LOAN_REPAYMENT', 'Loan EMI Repayment'),
-        ('SELLER_PAYOUT', 'Vendor Bank Settlement'),
-    ]
-
     tx_id = models.CharField(max_length=100, unique=True, editable=False)
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='immutable_txs', null=True, blank=True)
-    service_type = models.CharField(max_length=50, choices=TRANSACTION_TYPES)
-
+    service_type = models.CharField(max_length=50, default='ECOMMERCE_ORDER')
     gross_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    gateway_fee = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    platform_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    gst_on_commission = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-    tcs_tax = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     net_payout = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
-
-    operator_ref = models.CharField(max_length=150, blank=True, null=True)
     status = models.CharField(max_length=30, default='SUCCESS')
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
 
     def delete(self, *args, **kwargs):
         raise PermissionError("कानूनी नियम: यह वित्तीय ट्रांजेक्शन कभी डिलीट नहीं किया जा सकता।")
 
     def __str__(self):
-        return f"{self.tx_id} - {self.service_type} - ₹{self.gross_amount}"
+        return f"{self.tx_id} - ₹{self.gross_amount}"
