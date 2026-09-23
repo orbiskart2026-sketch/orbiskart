@@ -17,7 +17,6 @@ const GLOBAL_COUNTRIES = [
   { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦' },
 ];
 
-// Direct live Render backend URL with fallback protection
 const API_BASE_URL = 'https://orbiskart.onrender.com';
 
 export default function SellerRegisterPage() {
@@ -54,12 +53,6 @@ export default function SellerRegisterPage() {
     confirm_account_number: '',
     bank_ifsc_code: '',
   });
-
-  const [storePhoto, setStorePhoto] = useState<File | null>(null);
-  const [panDoc, setPanDoc] = useState<File | null>(null);
-  const [idDoc, setIdDoc] = useState<File | null>(null);
-  const [businessDoc, setBusinessDoc] = useState<File | null>(null);
-  const [chequeDoc, setChequeDoc] = useState<File | null>(null);
 
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [declaredAccurate, setDeclaredAccurate] = useState(false);
@@ -200,8 +193,7 @@ export default function SellerRegisterPage() {
       ? `${form.street_address}, Circle/PO: ${form.local_circle}`
       : form.street_address;
 
-    // 💡 Deep Solution: Files aur heavy multipart form-data ki jagah clean JSON payload bhejen
-    // Taki Render SSL decryption layer par 'bad record mac' error na aaye.
+    // JSON Payload to completely bypass multipart SSL decryption / bad record mac error
     const payload = {
       store_name: form.store_name,
       owner_name: form.owner_name,
@@ -230,7 +222,7 @@ export default function SellerRegisterPage() {
       const res = await fetch(targetUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json', // JSON bhejne se SSL decryption/bad record mac error kabhi nahi aayegi
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
       });
@@ -275,7 +267,7 @@ export default function SellerRegisterPage() {
               OrbisKart Global Seller Onboarding (KYC & Banking)
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              दुकान फ़ोटो, बिज़नेस प्रूफ, IFSC ऑटो-बैंक फ़ेच, पासवर्ड और ₹1 बैंक ट्रायल सत्यापन।
+              दुकान विवरण, IFSC ऑटो-बैंक फ़ेच, पासवर्ड और ₹1 बैंक ट्रायल सत्यापन।
             </p>
           </div>
           <Link href="/" className="text-xs text-indigo-400 hover:underline">
@@ -310,18 +302,6 @@ export default function SellerRegisterPage() {
                   onChange={(e) => setForm({ ...form, owner_name: e.target.value })}
                   placeholder="उदा. नरेश प्रसाद सोनी"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
-                />
-              </div>
-
-              <div className="md:col-span-2 bg-indigo-950/20 border border-indigo-500/30 p-4 rounded-2xl">
-                <label className="block text-indigo-300 font-bold mb-1">
-                  🏪 दुकान का बोर्ड / बाहर व अंदर की मुख्य फ़ोटो (Store Photo)
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => e.target.files && setStorePhoto(e.target.files[0])}
-                  className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-4 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white cursor-pointer"
                 />
               </div>
 
