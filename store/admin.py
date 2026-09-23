@@ -50,7 +50,6 @@ def approve_and_verify_sellers(modeladmin, request, queryset):
 
 @admin.register(VendorProfile)
 class VendorProfileAdmin(admin.ModelAdmin):
-    # list_editable में शामिल दोनों फ़ील्ड्स को list_display में शामिल कर दिया गया है
     list_display = (
         'store_name', 'contact_number', 'city_district', 'state', 
         'is_approved', 'penny_drop_verified', 'approval_badge', 'penny_drop_status', 
@@ -155,7 +154,6 @@ class ProductAdmin(admin.ModelAdmin):
         return format_html('<span style="color:#EF4444;">Unfrozen</span>')
     weight_freeze_badge.short_description = "Weight Freeze"
 
-    # सभी सुपरयूजर और स्टाफ यूज़र को सारे प्रोडक्ट्स बिना रुकावट दिखाना
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser or request.user.is_staff:
@@ -183,15 +181,12 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [OrderItemInline]
 
 
-# --- 6. Seller Deduction Slip Admin ---
+# --- 6. Seller Deduction Slip Admin (Fixed) ---
 @admin.register(SellerDeductionSlip)
 class SellerDeductionSlipAdmin(admin.ModelAdmin):
-    list_display = (
-        'slip_number', 'vendor', 'order', 'gross_order_amount', 
-        'courier_charge', 'platform_and_pg_fee', 'final_settlement_amount', 'is_settled_to_bank'
-    )
-    list_filter = ('is_settled_to_bank', 'vendor')
-    search_fields = ('slip_number', 'settlement_reference_utr')
+    list_display = ('id', 'created_at', 'vendor', 'net_payout_amount', 'status')
+    list_filter = ('status', 'vendor')
+    search_fields = ('id', 'vendor__store_name')
 
 
 # --- 7. Multi-Courier Shipping Rate Card Admin ---
@@ -201,12 +196,12 @@ class ShippingRateCardAdmin(admin.ModelAdmin):
     list_filter = ('courier_partner', 'zone', 'is_active')
 
 
-# --- 8. Immutable Master Transaction Admin ---
+# --- 8. Immutable Master Transaction Admin (Fixed) ---
 @admin.register(ImmutableMasterTransaction)
 class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
-    list_display = ('tx_id', 'service_type', 'gross_amount', 'gateway_fee', 'platform_commission', 'net_payout', 'status', 'created_at')
-    list_filter = ('service_type', 'status')
-    search_fields = ('tx_id', 'operator_ref')
+    list_display = ('id', 'created_at', 'order', 'amount', 'transaction_type', 'status')
+    search_fields = ('id', 'order__id', 'transaction_type')
+    list_filter = ('transaction_type', 'status', 'created_at')
     readonly_fields = [f.name for f in ImmutableMasterTransaction._meta.fields]
 
     def has_delete_permission(self, request, obj=None):
