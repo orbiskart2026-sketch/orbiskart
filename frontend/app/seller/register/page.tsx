@@ -159,7 +159,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!acceptedTerms || !declaredAccurate) {
@@ -193,7 +193,7 @@ export default function SellerRegisterPage() {
       ? `${form.street_address}, Circle/PO: ${form.local_circle}`
       : form.street_address;
 
-    // 💡 शुद्ध JSON पेलोड - कोई बाइनरी फाइल नहीं ताकि SSL Decryption / Bad Record MAC एरर कभी न आए
+    // Professional JSON Payload to completely bypass mobile SSL decryption/bad record mac error
     const payload = {
       store_name: form.store_name,
       owner_name: form.owner_name,
@@ -247,7 +247,6 @@ export default function SellerRegisterPage() {
         router.push('/seller');
       }
     } catch {
-      // यदि नेटवर्क में कोई भी रुकावट आए तो सेलर को न रोकें, तुरंत डैशबोर्ड में प्रवेश दें
       localStorage.setItem('is_seller', 'true');
       localStorage.setItem('seller_store_name', form.store_name);
       localStorage.setItem('seller_username', form.business_email);
