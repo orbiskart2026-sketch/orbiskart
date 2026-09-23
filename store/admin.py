@@ -27,7 +27,7 @@ admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 
 
-# --- 2. Vendor Profile Admin (1-Click Approval & Document Verification) ---
+# --- 2. Vendor Profile Admin ---
 @admin.action(description='✅ सेलर को ₹1 बैंक ट्रायल के साथ Approve करें (Make Active)')
 def approve_and_verify_sellers(modeladmin, request, queryset):
     updated_count = 0
@@ -37,15 +37,10 @@ def approve_and_verify_sellers(modeladmin, request, queryset):
         vendor.is_approved = True
         vendor.bank_account_verified = True
         vendor.save()
-        
-        # सेलर के सभी उत्पादों को तुरंत लाइव करना
         vendor.products.update(is_active=True)
         updated_count += 1
 
-    messages.success(
-        request, 
-        f"सफलतापूर्वक {updated_count} सेलर(s) को Approve कर दिया गया है। इनके सभी उत्पाद अब लाइव हैं।"
-    )
+    messages.success(request, f"सफलतापूर्वक {updated_count} सेलर(s) को Approve कर दिया गया है।")
 
 
 @admin.register(VendorProfile)
@@ -60,31 +55,6 @@ class VendorProfileAdmin(admin.ModelAdmin):
     list_editable = ('is_approved', 'penny_drop_verified')
     actions = [approve_and_verify_sellers]
     
-    fieldsets = (
-        ('दुकान व विक्रेता पहचान', {
-            'fields': ('user', 'store_name', 'store_photo', 'contact_number', 'business_email')
-        }),
-        ('विस्तृत व्यावसायिक पता (Address Columns)', {
-            'fields': ('street_address', 'city_district', 'state', 'pincode')
-        }),
-        ('टैक्स, पहचान व बिज़नेस प्रूफ (KYC Documents)', {
-            'fields': (
-                'gstin', 'msme_number', 'pan_number', 'id_proof_number',
-                'pan_doc', 'identity_proof_doc', 'business_proof_doc'
-            )
-        }),
-        ('बैंकिंग एवं ₹1 Penny Drop ट्रायल सत्यापन', {
-            'fields': (
-                'bank_name', 'bank_account_name', 'bank_account_number', 'bank_ifsc_code',
-                'bank_cheque_doc', 'bank_account_verified', 'penny_drop_verified', 
-                'penny_drop_utr', 'is_approved'
-            )
-        }),
-        ('कमीशन व वॉलेट', {
-            'fields': ('wallet_balance', 'commission_rate', 'quality_score', 'is_orbiskart_mall')
-        }),
-    )
-
     def approval_badge(self, obj):
         if obj.is_approved:
             return format_html('<span style="color:#10B981; font-weight:bold;">✔ Approved</span>')
@@ -98,7 +68,7 @@ class VendorProfileAdmin(admin.ModelAdmin):
     penny_drop_status.short_description = '₹1 Penny Drop'
 
 
-# --- 3. Product Gallery Images Inline (With Preview) ---
+# --- 3. Product Gallery Images Inline ---
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
@@ -111,7 +81,7 @@ class ProductImageInline(admin.TabularInline):
     preview_thumbnail.short_description = "प्रिव्यू"
 
 
-# --- 4. Product Admin (Fixed Visibility & Weight Freeze Display) ---
+# --- 4. Product Admin ---
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display = (
@@ -122,21 +92,6 @@ class ProductAdmin(admin.ModelAdmin):
     search_fields = ('id', 'title', 'description', 'vendor__store_name', 'hsn_code')
     list_editable = ('is_active', 'price', 'stock')
     inlines = [ProductImageInline]
-
-    fieldsets = (
-        ('मूल विवरण (Basic Info)', {
-            'fields': ('seller', 'vendor', 'category', 'category_policy', 'title', 'description', 'price', 'original_price', 'stock', 'is_active')
-        }),
-        ('वज़न एवं Weight Freeze सुरक्षा', {
-            'fields': ('weight_grams', 'package_length_cm', 'package_width_cm', 'package_height_cm', 'package_photo', 'is_weight_frozen')
-        }),
-        ('मीडिया (फ़ोटो एवं वीडियो)', {
-            'fields': ('image', 'video')
-        }),
-        ('टैक्स व HSN कोड', {
-            'fields': ('hsn_code', 'gst_rate')
-        }),
-    )
 
     def thumbnail_preview(self, obj):
         if obj.image:
@@ -154,16 +109,8 @@ class ProductAdmin(admin.ModelAdmin):
         return format_html('<span style="color:#EF4444;">Unfrozen</span>')
     weight_freeze_badge.short_description = "Weight Freeze"
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser or request.user.is_staff:
-            return qs
-        if hasattr(request.user, 'vendor_profile'):
-            return qs.filter(vendor=request.user.vendor_profile)
-        return qs
 
-
-# --- 5. Order Item Inline & Order Admin ---
+# --- 5. Order Admin ---
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
@@ -189,7 +136,7 @@ class SellerDeductionSlipAdmin(admin.ModelAdmin):
     search_fields = ('id', 'vendor__store_name')
 
 
-# --- 7. Multi-Courier Shipping Rate Card Admin ---
+# --- 7. Shipping Rate Card Admin ---
 @admin.register(ShippingRateCard)
 class ShippingRateCardAdmin(admin.ModelAdmin):
     list_display = ('courier_partner', 'zone', 'max_weight_grams', 'forward_charge', 'per_additional_500g', 'rto_charge', 'is_active')
@@ -205,7 +152,7 @@ class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
     readonly_fields = [f.name for f in ImmutableMasterTransaction._meta.fields]
 
     def has_delete_permission(self, request, obj=None):
-        return False  # कानूनी ऑडिट सुरक्षा
+        return False
 
 
 # --- 9. Govt HSN & Policies Admin ---
