@@ -17,7 +17,10 @@ const GLOBAL_COUNTRIES = [
   { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦' },
 ];
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com';
+// बैकएंड का लाइव बेस यूआरएल (डबल स्लैश से सुरक्षित)
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://orbiskart.onrender.com'
+).replace(/\/$/, '');
 
 export default function SellerRegisterPage() {
   const router = useRouter();
@@ -91,7 +94,7 @@ export default function SellerRegisterPage() {
           }));
         }
       } catch (err) {
-        console.error(err);
+        console.error('Pincode fetch error:', err);
       } finally {
         setPincodeLoading(false);
       }
@@ -155,7 +158,14 @@ export default function SellerRegisterPage() {
         }),
       });
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = {};
+      }
+
       if (res.ok && data.success) {
         const fetchedName = data.registered_name || form.bank_account_name || form.owner_name || 'Verified Beneficiary';
         setForm((prev) => ({
@@ -175,7 +185,8 @@ export default function SellerRegisterPage() {
         setAccountVerified(true);
         alert(`✔ खाता विवरण दर्ज हुआ (${fallbackName})।`);
       }
-    } catch {
+    } catch (err) {
+      console.warn('Bank verify fallback used:', err);
       const fallbackName = form.bank_account_name || form.owner_name || 'Bank Account Registered';
       setForm((prev) => ({
         ...prev,
@@ -189,7 +200,7 @@ export default function SellerRegisterPage() {
     }
   };
 
-  // 4. फॉर्म सबमिट हैंडलर (लाइव क्रेडेंशियल्स व टोकन ऑटो-स्टोरेज)
+  // 4. फॉर्म सबमिट हैंडलर
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -248,13 +259,24 @@ export default function SellerRegisterPage() {
     if (chequeDoc) data.append('bank_cheque_doc', chequeDoc);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/seller/register/`, {
+      const targetUrl = `${API_BASE_URL}/api/seller/register/`;
+      console.log('Sending registration request to:', targetUrl);
+
+      const res = await fetch(targetUrl, {
         method: 'POST',
         body: data,
       });
 
-      const resData = await res.json();
-      if (res.ok && (resData.success || resData.access_token || resData.vendor_id)) {
+      const responseText = await res.text();
+      let resData: any = {};
+      try {
+        resData = JSON.parse(responseText);
+      } catch (parseErr) {
+        console.error('Server HTML/Non-JSON Response:', responseText);
+        throw new Error(`सर्वर से अमान्य उत्तर प्राप्त हुआ (Status: ${res.status})। कृपया Render सर्वर लॉग देखें।`);
+      }
+
+      if (res.ok && (resData.success || resData.access_token || resData.vendor_id || resData.store_name)) {
         if (resData.access_token) {
           localStorage.setItem('access_token', resData.access_token);
         }
@@ -266,7 +288,7 @@ export default function SellerRegisterPage() {
 
         alert(
           `🎉 बधाई! आपकी दुकान '${resData.store_name || form.store_name}' 100% लाइव पंजीकृत हो गई है!\n\n` +
-          `👤 User ID: ${resData.username}\n` +
+          `👤 User ID: ${resData.username || form.business_email}\n` +
           `🔑 Password: ${form.password ? 'दर्ज किया गया पासवर्ड' : 'OrbisSeller@2026'}\n` +
           `📧 Email: ${form.business_email}\n` +
           `🏦 Bank Account: ${form.bank_account_number}\n` +
@@ -275,11 +297,12 @@ export default function SellerRegisterPage() {
         );
         router.push('/seller');
       } else {
-        alert(`पंजीकरण संदेश: ${resData.message || resData.error || 'पंजीकरण दर्ज हो गया है'}`);
-        router.push('/seller');
+        const errorMsg = resData.message || resData.error || resData.detail || JSON.stringify(resData);
+        alert(`⚠️ पंजीकरण संदेश: ${errorMsg}`);
       }
-    } catch {
-      alert('सर्वर से जुड़ने में समस्या हुई, कृपया पुन: प्रयास करें।');
+    } catch (err: any) {
+      console.error('Registration Submission Error:', err);
+      alert(`⚠️ एरर: ${err?.message || 'सर्वर से जुड़ने में समस्या हुई, कृपया पुन: प्रयास करें।'}`);
     } finally {
       setLoading(false);
     }
@@ -671,7 +694,7 @@ export default function SellerRegisterPage() {
                 )}
               </div>
 
-              {/* Beneficiary Name: 100% खुला और हाथ से टाइप करने योग्य इनपुट */}
+              {/* Beneficiary Name */}
               <div className="md:col-span-2 flex flex-col sm:flex-row gap-3 items-end">
                 <div className="flex-1 w-full">
                   <label className="block text-slate-300 mb-1 font-bold">

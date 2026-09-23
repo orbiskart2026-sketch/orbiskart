@@ -11,9 +11,31 @@ import {
 
 const API_BASE_URL = "https://orbiskart.onrender.com/api/";
 
+interface SellerData {
+  store_name?: string;
+  is_approved?: boolean;
+  is_orbiskart_mall?: boolean;
+  quality_score?: string;
+  wallet_balance?: string | number;
+  banking?: {
+    bank_name?: string;
+    account_masked?: string;
+    ifsc?: string;
+  };
+  orders_summary?: {
+    total?: number;
+    delivered?: number;
+    returns?: number;
+  };
+  support?: {
+    ref_no?: string;
+    it_call_no?: string;
+  };
+}
+
 export default function SellerHubScreen() {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<SellerData | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
