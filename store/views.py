@@ -1022,81 +1022,30 @@ class SellerRegisterAPIView(APIView):
                 profile.store_name = store_name
                 profile.contact_number = contact_number
                 profile.business_email = business_email
-                profile.street_address = data.get('street_address', '').strip() or data.get('store_address', '').strip()
+                profile.street_address = data.get('street_address', '').strip()
                 profile.city_district = data.get('city_district', '').strip()
                 profile.state = data.get('state', 'Jharkhand').strip()
                 profile.pincode = data.get('pincode', '').strip()
-
-                profile.gstin = data.get('gstin', '').strip()
-                profile.msme_number = data.get('msme_number', '').strip()
                 profile.pan_number = data.get('pan_number', '').strip()
-                profile.id_proof_number = data.get('id_proof_number', '').strip()
-
-                profile.bank_name = data.get('bank_name', '').strip() or 'State Bank of India'
+                profile.bank_name = data.get('bank_name', 'State Bank of India').strip()
                 profile.bank_account_name = data.get('bank_account_name', '').strip() or owner_name
                 profile.bank_account_number = data.get('bank_account_number', '').strip()
                 profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
-
-                if 'store_photo' in request.FILES:
-                    profile.store_photo = request.FILES['store_photo']
-                if 'pan_doc' in request.FILES:
-                    profile.pan_doc = request.FILES['pan_doc']
-                if 'identity_proof_doc' in request.FILES:
-                    profile.identity_proof_doc = request.FILES['identity_proof_doc']
-                if 'business_proof_doc' in request.FILES:
-                    profile.business_proof_doc = request.FILES['business_proof_doc']
-                if 'bank_cheque_doc' in request.FILES:
-                    profile.bank_cheque_doc = request.FILES['bank_cheque_doc']
 
                 profile.is_approved = True
                 profile.penny_drop_verified = True
                 profile.bank_account_verified = True
                 profile.save()
 
-                refresh = RefreshToken.for_user(user)
-                access_token = str(refresh.access_token)
-
-                email_subject = f"🎉 बधाई! आपकी दुकान '{store_name}' OrbisKart पर सक्रिय हो गई है"
-                email_body = (
-                    f"नमस्ते {owner_name},\n\n"
-                    f"बधाई हो! आपकी दुकान '{store_name}' OrbisKart विक्रेता मंच पर सफलतापूर्वक पंजीकृत व सत्यापित हो गई है।\n\n"
-                    f"--- आपके सेलर लॉगिन क्रेडेंशियल्स ---\n"
-                    f"दुकान का नाम: {store_name}\n"
-                    f"सेलर User ID: {username}\n"
-                    f"लॉगिन पासवर्ड: {password}\n"
-                    f"पंजीकृत ईमेल: {business_email}\n"
-                    f"मोबाइल नंबर: {contact_number}\n\n"
-                    f"आप अब सीधे अपने सेलर पोर्टल पर जाकर उत्पाद लाइव कर सकते हैं।\n\n"
-                    f"सादर,\nOrbisKart Merchant Support Desk"
-                )
-
-                try:
-                    send_mail(
-                        subject=email_subject,
-                        message=email_body,
-                        from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'OrbisKart <orbiskart2026@gmail.com>'),
-                        recipient_list=[business_email],
-                        fail_silently=True,
-                    )
-                except Exception:
-                    pass
-
             return Response({
                 'success': True,
-                'message': f'सेलर यूज़र {username} सफलतापूर्वक पंजीकृत हो गया!',
-                'access_token': access_token,
-                'user_id': user.id,
+                'message': f'सेलर {store_name} सफलतापूर्वक पंजीकृत हो गया!',
                 'username': user.username,
-                'email': user.email,
-                'store_name': profile.store_name,
-                'bank_name': profile.bank_name,
-                'account_number': profile.bank_account_number,
-                'ifsc': profile.bank_ifsc_code
+                'store_name': profile.store_name
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({'error': f'रजिस्ट्रेशन त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 # --- 16. Seller Profile, Address & Bank Self-Service Update API ---
 class SellerProfileUpdateAPIView(APIView):
