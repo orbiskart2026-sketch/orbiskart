@@ -1,39 +1,42 @@
 from django.urls import path
 from .views import (
-    RegisterAPIView, ProductListView, ProductDetailView, 
+    ProductListView, ProductDetailView, RegisterAPIView,
     CartView, AddToCartView, UpdateCartItemView, RemoveFromCartView,
-    CreateOrderView, VerifyOrderOTPView, UserOrdersListView, 
+    CreateOrderView, VerifyOrderOTPView, UserOrdersListView,
     DownloadInvoicePDFView, AddProductReviewView, SellerDashboardSummaryView,
     CreateRazorpayOrderView, VerifyRazorpayPaymentView, UtilityBillEngineView,
     CentralEcoMasterLedgerView, SellerRegisterAPIView, SellerProfileUpdateAPIView,
-    VerifyBankAccountAPIView, DownloadSellerDeductionSlipPDFView, ProcessAutomatedT3SettlementView
+    VerifyBankAccountAPIView, DownloadSellerDeductionSlipPDFView,
+    ProcessAutomatedT3SettlementView, ProductOnboardAPIView
 )
 
 urlpatterns = [
-    path('register/', RegisterAPIView.as_view(), name='api_register'),
-    path('products/', ProductListView.as_view(), name='api_products'),
-    path('products/<int:pk>/', ProductDetailView.as_view(), name='api_product_detail'),
-    path('cart/', CartView.as_view(), name='api_cart'),
-    path('cart/add/', AddToCartView.as_view(), name='api_cart_add'),
-    path('cart/update/', UpdateCartItemView.as_view(), name='api_cart_update'),
-    path('cart/remove/', RemoveFromCartView.as_view(), name='api_cart_remove'),
-    path('orders/create/', CreateOrderView.as_view(), name='api_order_create'),
-    path('orders/verify-otp/<int:order_id>/', VerifyOrderOTPView.as_view(), name='api_verify_otp'),
-    path('orders/my/', UserOrdersListView.as_view(), name='api_my_orders'),
-    path('orders/invoice/<int:order_id>/', DownloadInvoicePDFView.as_view(), name='api_download_invoice'),
-    path('products/<int:pk>/review/', AddProductReviewView.as_view(), name='api_add_review'),
+    path('register/', RegisterAPIView.as_view(), name='api-register'),
+    path('products/', ProductListView.as_view(), name='api-product-list'),
+    path('products/onboard/', ProductOnboardAPIView.as_view(), name='api-product-onboard'),
+    path('products/<int:pk>/', ProductDetailView.as_view(), name='api-product-detail'),
+    path('products/<int:pk>/review/', AddProductReviewView.as_view(), name='api-add-review'),
     
-    # --- Seller Onboarding & Hub APIs ---
-    path('seller/register/', SellerRegisterAPIView.as_view(), name='api_seller_register'),
-    path('seller-profile/', SellerDashboardSummaryView.as_view(), name='api_seller_profile_summary'),
-    path('seller/update/', SellerProfileUpdateAPIView.as_view(), name='api_seller_update'),
-    path('seller/verify-bank/', VerifyBankAccountAPIView.as_view(), name='api_verify_bank'),
-    path('seller/deduction-slip/<int:order_id>/', DownloadSellerDeductionSlipPDFView.as_view(), name='api_deduction_slip_pdf'),
-    path('seller/settle-t3/', ProcessAutomatedT3SettlementView.as_view(), name='api_t3_settlement'),
-
-    # --- Razorpay & Utilities ---
-    path('payment/razorpay/create/', CreateRazorpayOrderView.as_view(), name='api_rzp_create'),
-    path('payment/razorpay/verify/', VerifyRazorpayPaymentView.as_view(), name='api_rzp_verify'),
-    path('utility/pay/', UtilityBillEngineView.as_view(), name='api_utility_pay'),
-    path('admin/eco-master-ledger/', CentralEcoMasterLedgerView.as_view(), name='eco_master_ledger_api'),
+    path('cart/', CartView.as_view(), name='api-cart'),
+    path('cart/add/', AddToCartView.as_view(), name='api-cart-add'),
+    path('cart/update/', UpdateCartItemView.as_view(), name='api-cart-update'),
+    path('cart/remove/', RemoveFromCartView.as_view(), name='api-cart-remove'),
+    
+    path('orders/create/', CreateOrderView.as_view(), name='api-create-order'),
+    path('orders/my/', UserOrdersListView.as_view(), name='api-user-orders'),
+    path('orders/<int:order_id>/verify-otp/', VerifyOrderOTPView.as_view(), name='api-verify-otp'),
+    path('orders/<int:order_id>/invoice/', DownloadInvoicePDFView.as_view(), name='api-download-invoice'),
+    
+    path('seller/register/', SellerRegisterAPIView.as_view(), name='api-seller-register'),
+    path('seller/profile/update/', SellerProfileUpdateAPIView.as_view(), name='api-seller-profile-update'),
+    path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='api-seller-dashboard'),
+    path('seller/verify-bank/', VerifyBankAccountAPIView.as_view(), name='api-verify-bank'),
+    path('orders/<int:order_id>/deduction-slip/', DownloadSellerDeductionSlipPDFView.as_view(), name='api-deduction-slip'),
+    
+    path('payment/razorpay/create/', CreateRazorpayOrderView.as_view(), name='api-razorpay-create'),
+    path('payment/razorpay/verify/', VerifyRazorpayPaymentView.as_view(), name='api-razorpay-verify'),
+    
+    path('utility/bill/', UtilityBillEngineView.as_view(), name='api-utility-bill'),
+    path('eco/ledger/', CentralEcoMasterLedgerView.as_view(), name='api-eco-ledger'),
+    path('settlement/t3/run/', ProcessAutomatedT3SettlementView.as_view(), name='api-t3-settlement'),
 ]

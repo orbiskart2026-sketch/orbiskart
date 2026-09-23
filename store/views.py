@@ -105,7 +105,6 @@ class ProductListView(APIView):
 
     def get(self, request):
         try:
-            # स्वतः डिफ़ॉल्ट 20 श्रेणियां सुनिश्चित करना यदि डेटाबेस खाली हो
             default_categories = [
                 "Electronics & Speakers", "Mobile & Accessories", "Fashion & Clothing", 
                 "Footwear & Shoes", "Home & Kitchen Appliances", "Grocery & Daily Needs", 
@@ -144,8 +143,6 @@ class ProductListView(APIView):
                 queryset = queryset.order_by('-id')
 
             serializer = ProductSerializer(queryset, many=True, context={'request': request})
-            
-            # सभी श्रेणियों को ड्रॉपडाउन के लिए भेजना
             categories = Category.objects.all().values('id', 'name')
 
             return Response({
