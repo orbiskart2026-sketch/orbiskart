@@ -128,12 +128,11 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [OrderItemInline]
 
 
-# --- 6. Seller Deduction Slip Admin (Fixed) ---
+# --- 6. Seller Deduction Slip Admin (Safe Fallback) ---
 @admin.register(SellerDeductionSlip)
 class SellerDeductionSlipAdmin(admin.ModelAdmin):
-    list_display = ('id', 'created_at', 'vendor', 'net_payout_amount', 'status')
-    list_filter = ('status', 'vendor')
-    search_fields = ('id', 'vendor__store_name')
+    list_display = ('id', 'created_at', 'vendor')
+    search_fields = ('id',)
 
 
 # --- 7. Shipping Rate Card Admin ---
@@ -143,12 +142,11 @@ class ShippingRateCardAdmin(admin.ModelAdmin):
     list_filter = ('courier_partner', 'zone', 'is_active')
 
 
-# --- 8. Immutable Master Transaction Admin (Fixed) ---
+# --- 8. Immutable Master Transaction Admin (Safe Fallback) ---
 @admin.register(ImmutableMasterTransaction)
 class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'created_at', 'order', 'amount', 'transaction_type', 'status')
-    search_fields = ('id', 'order__id', 'transaction_type')
-    list_filter = ('transaction_type', 'status', 'created_at')
+    list_display = ('id', 'created_at')
+    search_fields = ('id',)
     readonly_fields = [f.name for f in ImmutableMasterTransaction._meta.fields]
 
     def has_delete_permission(self, request, obj=None):
