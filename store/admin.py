@@ -128,32 +128,14 @@ class OrderAdmin(admin.ModelAdmin):
     inlines = [OrderItemInline]
 
 
-# --- 6. Seller Deduction Slip Admin (Safe Fallback) ---
-@admin.register(SellerDeductionSlip)
-class SellerDeductionSlipAdmin(admin.ModelAdmin):
-    list_display = ('id', 'created_at', 'vendor')
-    search_fields = ('id',)
-
-
-# --- 7. Shipping Rate Card Admin ---
+# --- 6. Shipping Rate Card Admin ---
 @admin.register(ShippingRateCard)
 class ShippingRateCardAdmin(admin.ModelAdmin):
     list_display = ('courier_partner', 'zone', 'max_weight_grams', 'forward_charge', 'per_additional_500g', 'rto_charge', 'is_active')
     list_filter = ('courier_partner', 'zone', 'is_active')
 
 
-# --- 8. Immutable Master Transaction Admin (Safe Fallback) ---
-@admin.register(ImmutableMasterTransaction)
-class ImmutableMasterTransactionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'created_at')
-    search_fields = ('id',)
-    readonly_fields = [f.name for f in ImmutableMasterTransaction._meta.fields]
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-# --- 9. Govt HSN & Policies Admin ---
+# --- 7. Govt HSN & Policies Admin ---
 @admin.register(GovtHSNMaster)
 class GovtHSNMasterAdmin(admin.ModelAdmin):
     list_display = ('hsn_code', 'description', 'gst_rate', 'cess_rate', 'last_updated_gov')
@@ -165,9 +147,11 @@ class CategoryPolicyAdmin(admin.ModelAdmin):
     list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
 
 
-# --- 10. Remaining Models ---
+# --- 8. Remaining Models (Direct Registration without custom admin errors) ---
 admin.site.register(Category)
 admin.site.register(Cart)
 admin.site.register(CartItem)
 admin.site.register(Review)
+admin.site.register(SellerDeductionSlip)
+admin.site.register(ImmutableMasterTransaction)
 admin.site.register(OrderShippingReconciliation)
