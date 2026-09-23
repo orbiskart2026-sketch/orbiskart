@@ -994,6 +994,57 @@ class SellerRegisterAPIView(APIView):
             password = data.get('password', '').strip() or 'OrbisSeller@2026'
 
             if not store_name or not owner_name or not contact_number or not business_email:
+                return Response({'error': 'Dukan ka naam aur anivarya field bharein.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            clean_store = "".join(e for e in store_name.lower() if e.isalnum())
+            username = clean_store or f"seller_{contact_number[-4:]}"
+
+            with transaction.atomic():
+                user, created = User.objects.get_or_create(
+                    username=username,
+                    defaults={'email': business_email, 'first_name': owner_name}
+                )
+                if password:
+                    user.set_password(password)
+                    user.save()
+
+                profile, _ = VendorProfile.objects.get_or_create(user=user)
+                profile.store_name = store_name
+                profile.contact_number = contact_number
+                profile.business_email = business_email
+                profile.street_address = data.get('street_address', '').strip()
+                profile.city_district = data.get('city_district', '').strip()
+                profile.state = data.get('state', 'Jharkhand').strip()
+                profile.pincode = data.get('pincode', '').strip()
+                profile.pan_number = data.get('pan_number', '').strip()
+                profile.bank_name = data.get('bank_name', 'State Bank of India').strip()
+                profile.bank_account_number = data.get('bank_account_number', '').strip()
+                profile.bank_ifsc_code = data.get('bank_ifsc_code', '').strip().upper()
+                profile.is_approved = True
+                profile.save()
+
+            return Response({
+                'success': True,
+                'message': f'Dukan {store_name} safalataपूर्वक register ho gayi hai!',
+                'username': user.username,
+                'store_name': profile.store_name
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    permission_classes = [permissions.AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        try:
+            data = request.data
+            store_name = data.get('store_name', '').strip()
+            owner_name = data.get('owner_name', '').strip()
+            contact_number = data.get('contact_number', '').strip()
+            business_email = data.get('business_email', '').strip()
+            password = data.get('password', '').strip() or 'OrbisSeller@2026'
+
+            if not store_name or not owner_name or not contact_number or not business_email:
                 return Response({'error': 'दुकान का नाम, मालिक का नाम, ईमेल और मोबाइल नंबर अनिवार्य हैं।'}, status=status.HTTP_400_BAD_REQUEST)
 
             clean_store = "".join(e for e in store_name.lower() if e.isalnum())
