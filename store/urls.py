@@ -17,10 +17,10 @@ from .views import (
     VerifyRazorpayPaymentView,
     UtilityBillEngineView,
     CentralEcoMasterLedgerView,
-    SellerRegisterAPIView,               # 100% सुरक्षित KYC ऑनबोर्डिंग
-    SellerProfileUpdateAPIView,          # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
-    VerifyBankAccountAPIView,            # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
-    DownloadSellerDeductionSlipPDFView,  # 1-क्लिक सेलर डिडक्शन स्लिप PDF इंजन
+    SellerRegisterAPIView,                 # 100% सुरक्षित KYC ऑनबोर्डिंग
+    SellerProfileUpdateAPIView,            # बैंक खाता / दुकान का नाम / पता बदलने का एंडपॉइंट
+    VerifyBankAccountAPIView,              # बैंक खाताधारक का नाम ऑटो-फ़ेच करने का एंडपॉइंट
+    DownloadSellerDeductionSlipPDFView,    # 1-क्लिक सेलर डिडक्शन स्लिप PDF इंजन
     ProcessAutomatedT3SettlementView,    # T+3 स्वचालित बैंक सेटलमेंट क्रॉन इंजन
 )
 
@@ -48,6 +48,8 @@ urlpatterns = [
 
     # 5. Seller Hub, KYC Transparency & Bank Verification
     path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='seller-dashboard'),
+    path('seller-profile/', SellerDashboardSummaryView.as_view(), name='seller-profile'),          # मोबाइल ऐप संगतता के लिए जोड़ा गया
+    path('api/seller-profile/', SellerDashboardSummaryView.as_view(), name='api-seller-profile'),  # मोबाइल ऐप संगतता के लिए जोड़ा गया
     path('seller/register/', SellerRegisterAPIView.as_view(), name='seller-register'),
     path('api/seller/register/', SellerRegisterAPIView.as_view(), name='api-seller-register'),
     path('seller/profile/update/', SellerProfileUpdateAPIView.as_view(), name='seller-profile-update'),
