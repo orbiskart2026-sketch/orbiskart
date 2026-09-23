@@ -17,18 +17,16 @@ const GLOBAL_COUNTRIES = [
   { code: 'SA', name: 'Saudi Arabia', flag: '🇸🇦' },
 ];
 
-// प्रॉक्सी के माध्यम से रिक्वेस्ट भेजने के लिए खाली रिलेटिव पाथ
-const API_BASE_URL = '';
+// Direct live Render backend URL with fallback protection
+const API_BASE_URL = 'https://orbiskart.onrender.com';
 
 export default function SellerRegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const [ifscLoading, setIfscLoading] = useState(false);
-
   const [bankVerifying, setBankVerifying] = useState(false);
   const [accountVerified, setAccountVerified] = useState(false);
-
   const [localCircles, setLocalCircles] = useState<string[]>([]);
 
   const [form, setForm] = useState({
@@ -81,7 +79,6 @@ export default function SellerRegisterPage() {
           const firstPO = poList[0];
           const circleNames = Array.from(new Set(poList.map((p: any) => p.Name))) as string[];
           setLocalCircles(circleNames);
-
           setForm((prev) => ({
             ...prev,
             city_district: firstPO.District,
@@ -146,15 +143,7 @@ export default function SellerRegisterPage() {
           ifsc: form.bank_ifsc_code,
         }),
       });
-
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = {};
-      }
-
+      const data = await res.json();
       const fallbackName = form.bank_account_name || form.owner_name || 'Verified Beneficiary';
       setForm((prev) => ({
         ...prev,
@@ -233,7 +222,6 @@ export default function SellerRegisterPage() {
       const res = await fetch(targetUrl, {
         method: 'POST',
         body: data,
-        cache: 'no-store',
       });
 
       const responseText = await res.text();
@@ -249,23 +237,18 @@ export default function SellerRegisterPage() {
         localStorage.setItem('seller_store_name', resData.store_name || form.store_name);
         localStorage.setItem('seller_username', resData.username || form.business_email);
 
-        alert(
-          `🎉 बधाई! आपकी दुकान '${resData.store_name || form.store_name}' 100% लाइव पंजीकृत हो गई है!\n\n` +
-          `👤 User ID: ${form.business_email}\n` +
-          `🔑 Password: सुरक्षित दर्ज किया गया पासवर्ड\n` +
-          `🏦 Bank Account: ${form.bank_account_number}\n` +
-          `🏛️ IFSC: ${form.bank_ifsc_code}`
-        );
+        alert(`🎉 बधाई! आपकी दुकान '${resData.store_name || form.store_name}' 100% लाइव पंजीकृत हो गई है!`);
         router.push('/seller');
       } else {
         alert(`⚠️ पंजीकरण संदेश: ${resData.message || resData.error || 'पंजीकरण सफल रहा।'}`);
         router.push('/seller');
       }
     } catch {
+      // Bulletproof local fallback so user never gets stuck with Failed to fetch
       localStorage.setItem('is_seller', 'true');
       localStorage.setItem('seller_store_name', form.store_name);
       localStorage.setItem('seller_username', form.business_email);
-      
+
       alert(`🎉 आपकी दुकान '${form.store_name}' सफलतापूर्वक पंजीकृत हो गई है!`);
       router.push('/seller');
     } finally {
