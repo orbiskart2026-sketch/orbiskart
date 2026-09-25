@@ -12,14 +12,13 @@ import dj_database_url
 # Base directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# .env फ़ाइल लोड करें (प्रोजेक्ट रूट से)
+# .env फ़ाइल लोड करें
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# --- सुरक्षा सेटिंग्स (.env से ऑटोमैटिक) ---
+# सुरक्षा सेटिंग्स
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-o7twl4#10(t**i!#zsoea2*d5muejzs5%z5=+(2-(=9o+z5)rb')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-# डोमेन लिस्टिंग (.env से)
 ALLOWED_HOSTS = [
     'orbiskart.onrender.com',
     'www.orbiskart.com',
@@ -29,7 +28,6 @@ ALLOWED_HOSTS = [
     '.onrender.com'
 ]
 
-# --- Application definition ---
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -37,12 +35,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    # Third party apps
     'corsheaders',
     'rest_framework',
-    
-    # Local apps
     'store',
 ]
 
@@ -77,7 +71,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# --- Permanent Database Configuration with Local Safe Fallback ---
+# Database Configuration (PostgreSQL on Render with local SQLite fallback)
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DATABASE_URL', f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
@@ -86,7 +80,6 @@ DATABASES = {
     )
 }
 
-# --- Password validation ---
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -94,13 +87,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- Internationalization ---
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Kolkata'
 USE_I18N = True
 USE_TZ = True
 
-# --- Static & Media Files ---
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
@@ -116,7 +107,6 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# --- Email Setup ---
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
@@ -125,7 +115,6 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'orbiskart2026@gmail.com')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', f"OrbisKart <{EMAIL_HOST_USER}>")
 
-# --- REST Framework & JWT Setup ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -140,7 +129,6 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# --- CORS & CSRF Configuration ---
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = False
 
@@ -176,9 +164,6 @@ CORS_ALLOW_HEADERS = [
     "x-cron-secret",
 ]
 
-# =======================================================
-# Razorpay & RazorpayX Nodal Payouts (.env से ऑटोमैटिक)
-# =======================================================
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_KEY_SECRET', '')
 RAZORPAYX_ACCOUNT_NUMBER = os.getenv('RAZORPAYX_ACCOUNT_NUMBER', '')

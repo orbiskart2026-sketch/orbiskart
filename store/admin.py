@@ -11,61 +11,60 @@ from .models import (
     OrderShippingReconciliation
 )
 
-
 # --- 1. User Profile Inline ---
 class UserProfileInline(admin.StackedInline):
     model = UserProfile
     can_delete = False
     verbose_name_plural = 'Role & Profile'
 
-
 class UserAdmin(BaseUserAdmin):
     inlines = (UserProfileInline,)
 
-
-admin.site.unregister(User)
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
 admin.site.register(User, UserAdmin)
 
 
-# --- 2. Vendor Profile Admin ---
-@admin.action(description='✅ सेलर को ₹1 बैंक ट्रायल के साथ Approve करें (Make Active)')
+# --- 2. Vendor Profile Admin with Rich UI Badges ---
+@admin.action(description='✅ Select & Approve Vendors (Instant Live)')
 def approve_and_verify_sellers(modeladmin, request, queryset):
     updated_count = 0
     for vendor in queryset:
         vendor.penny_drop_verified = True
-        vendor.penny_drop_utr = f"PENNY-UTR-{uuid.uuid4().hex[:8].upper()}"
+        vendor.penny_drop_utr = f"UTR-{uuid.uuid4().hex[:8].upper()}"
+        vendor.is_verified_seller = True
         vendor.is_approved = True
         vendor.bank_account_verified = True
         vendor.save()
-        vendor.products.update(is_active=True)
+        if hasattr(vendor, 'products'):
+            vendor.products.update(is_active=True)
         updated_count += 1
-
-    messages.success(request, f"सफलतापूर्वक {updated_count} सेलर(s) को Approve कर दिया गया है।")
-
+    messages.success(request, f"Successfully approved {updated_count} vendor(s) with active status.")
 
 @admin.register(VendorProfile)
 class VendorProfileAdmin(admin.ModelAdmin):
     list_display = (
-        'store_name', 'contact_number', 'city_district', 'state', 
-        'is_approved', 'penny_drop_verified', 'approval_badge', 'penny_drop_status', 
-        'bank_account_number', 'wallet_balance', 'created_at'
+        'shop_name', 'user', 'mobile_number', 'city_district', 
+        'approval_badge', 'penny_drop_status', 'wallet_balance', 'created_at'
     )
-    list_filter = ('is_approved', 'penny_drop_verified', 'state', 'bank_account_verified')
-    search_fields = ('store_name', 'contact_number', 'business_email', 'pan_number', 'gstin', 'msme_number', 'bank_account_number')
-    list_editable = ('is_approved', 'penny_drop_verified')
+    list_filter = ('is_verified_seller', 'penny_drop_verified', 'state')
+    search_fields = ('shop_name', 'user__username', 'mobile_number', 'pan_number', 'gstin_number')
+    list_editable = ()
     actions = [approve_and_verify_sellers]
-    
+
     def approval_badge(self, obj):
-        if obj.is_approved:
-            return format_html('<span style="color:#10B981; font-weight:bold;">✔ Approved</span>')
-        return format_html('<span style="color:#F59E0B; font-weight:bold;">⏳ Pending</span>')
-    approval_badge.short_description = 'Approval Status'
+        if obj.is_verified_seller:
+            return format_html('<span style="background-color: #DEF7EC; color: #03543F; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;">✔ APPROVED</span>')
+        return format_html('<span style="background-color: #FEF3C7; color: #92400E; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;">⏳ PENDING</span>')
+    approval_badge.short_description = 'Status'
 
     def penny_drop_status(self, obj):
         if obj.penny_drop_verified:
-            return format_html('<span style="color:#10B981; font-weight:bold;">✔ Verified ({})</span>', obj.penny_drop_utr or 'Sent')
-        return format_html('<span style="color:#EF4444; font-weight:bold;">⏳ Pending</span>')
-    penny_drop_status.short_description = '₹1 Penny Drop'
+            return format_html('<span style="background-color: #E1EFFE; color: #1E429F; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;">✔ VERIFIED</span>')
+        return format_html('<span style="background-color: #FDE8E8; color: #9B1C1C; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;">❌ UNVERIFIED</span>')
+    penny_drop_status.short_description = 'Bank Penny-Drop'
 
 
 # --- 3. Product Gallery Images Inline ---
@@ -76,78 +75,56 @@ class ProductImageInline(admin.TabularInline):
 
     def preview_thumbnail(self, instance):
         if instance.image:
-            return format_html('<img src="{}" style="height: 50px; width: 50px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd;" />', instance.image.url)
-        return "No Image"
-    preview_thumbnail.short_description = "प्रिव्यू"
+            return format_html('<img src="{}" style="height: 40px; width: 40px; object-fit: cover; border-radius: 4px;" />', instance.image.url)
+        return "No Img"
+    preview_thumbnail.short_description = "Preview"
 
 
 # --- 4. Product Admin ---
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = (
-        'id', 'thumbnail_preview', 'title', 'vendor_name', 'price', 
-        'weight_grams', 'weight_freeze_badge', 'stock', 'is_active', 'created_at'
-    )
-    list_filter = ('is_active', 'is_weight_frozen', 'category', 'created_at')
-    search_fields = ('id', 'title', 'description', 'vendor__store_name', 'hsn_code')
+    list_display = ('id', 'thumbnail_preview', 'title', 'vendor', 'price', 'stock', 'is_active')
+    list_filter = ('is_active', 'category')
+    search_fields = ('id', 'title', 'description', 'vendor__shop_name')
     list_editable = ('is_active', 'price', 'stock')
     inlines = [ProductImageInline]
 
     def thumbnail_preview(self, obj):
         if obj.image:
-            return format_html('<img src="{}" style="width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid #ccc;" />', obj.image.url)
-        return "📷 No Img"
-    thumbnail_preview.short_description = "फ़ोटो"
-
-    def vendor_name(self, obj):
-        return obj.vendor.store_name if obj.vendor else "Direct Admin"
-    vendor_name.short_description = "दुकान / सेलर"
-
-    def weight_freeze_badge(self, obj):
-        if obj.is_weight_frozen:
-            return format_html('<span style="color:#10B981; font-weight:bold;">🔒 {}g ({}x{}x{})</span>', obj.weight_grams, obj.package_length_cm, obj.package_width_cm, obj.package_height_cm)
-        return format_html('<span style="color:#EF4444;">Unfrozen</span>')
-    weight_freeze_badge.short_description = "Weight Freeze"
+            return format_html('<img src="{}" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px;" />', obj.image.url)
+        return "📷"
+    thumbnail_preview.short_description = "Img"
 
 
 # --- 5. Order Admin ---
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
-    readonly_fields = ('product', 'vendor', 'price', 'quantity', 'vendor_payout')
-
+    readonly_fields = ('product', 'vendor', 'price', 'quantity')
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = (
-        'id', 'user', 'total_price', 'delivery_fee', 'payment_method', 
-        'status', 'delivery_otp', 'courier_partner', 'created_at'
-    )
-    list_filter = ('status', 'payment_method', 'courier_partner')
+    list_display = ('id', 'user', 'total_price', 'payment_method', 'status_badge', 'created_at')
+    list_filter = ('status', 'payment_method')
     search_fields = ('id', 'user__username', 'shipping_address', 'awb_number')
     inlines = [OrderItemInline]
 
-
-# --- 6. Shipping Rate Card Admin ---
-@admin.register(ShippingRateCard)
-class ShippingRateCardAdmin(admin.ModelAdmin):
-    list_display = ('courier_partner', 'zone', 'max_weight_grams', 'forward_charge', 'per_additional_500g', 'rto_charge', 'is_active')
-    list_filter = ('courier_partner', 'zone', 'is_active')
-
-
-# --- 7. Govt HSN & Policies Admin ---
-@admin.register(GovtHSNMaster)
-class GovtHSNMasterAdmin(admin.ModelAdmin):
-    list_display = ('hsn_code', 'description', 'gst_rate', 'cess_rate', 'last_updated_gov')
-    search_fields = ('hsn_code', 'description')
+    def status_badge(self, obj):
+        colors = {
+            'Delivered': '#DEF7EC; color: #03543F',
+            'Confirmed': '#E1EFFE; color: #1E429F',
+            'Pending Payment': '#FEF3C7; color: #92400E',
+            'Cancelled': '#FDE8E8; color: #9B1C1C'
+        }
+        style = colors.get(obj.status, '#F3F4F6; color: #1F2937')
+        return format_html(f'<span style="background-color: {style}; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px;">{obj.status}</span>')
+    status_badge.short_description = 'Order Status'
 
 
-@admin.register(CategoryPolicy)
-class CategoryPolicyAdmin(admin.ModelAdmin):
-    list_display = ('name', 'hsn_code', 'gst_rate', 'platform_fee_percent', 'settlement_days')
-
-
-# --- 8. Remaining Models (Direct Registration without custom admin errors) ---
+# --- 6. Other Registrations ---
+admin.site.register(ShippingRateCard)
+admin.site.register(GovtHSNMaster)
+admin.site.register(CategoryPolicy)
 admin.site.register(Category)
 admin.site.register(Cart)
 admin.site.register(CartItem)

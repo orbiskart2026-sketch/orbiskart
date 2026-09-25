@@ -29,40 +29,55 @@ class UserProfile(models.Model):
 class VendorProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='vendor_profile')
-    store_name = models.CharField(max_length=255, unique=True)
-    store_photo = models.ImageField(upload_to='seller_stores/', null=True, blank=True)
+    
+    # Basic Store & Owner Info
+    shop_name = models.CharField(max_length=255, unique=True)
+    store_name = models.CharField(max_length=255, blank=True, null=True) # Compatibility alias
+    owner_name = models.CharField(max_length=255, default='')
+    mobile_number = models.CharField(max_length=15, default='')
+    email = models.EmailField(blank=True, null=True)
     business_email = models.EmailField(blank=True, null=True)
-    contact_number = models.CharField(max_length=15, default='')
-
-    # विस्तृत दुकान / वेयरहाउस पता
+    
+    # Address Info
+    business_address = models.TextField(default='', blank=True)
     street_address = models.TextField(default='', blank=True)
     city_district = models.CharField(max_length=100, default='')
     state = models.CharField(max_length=100, default='Jharkhand')
-    pincode = models.CharField(max_length=10, default='')
+    pin_code = models.CharField(max_length=10, default='', blank=True)
 
-    # टैक्स व पहचान अनुपालन (KYC)
-    gstin = models.CharField(max_length=15, blank=True, null=True)
+    # Compliance & Legal Verification Fields (KYC)
+    gstin_number = models.CharField(max_length=15, blank=True, null=True)
+    gstin = models.CharField(max_length=15, blank=True, null=True) # Compatibility alias
+    msme_udyam_number = models.CharField(max_length=50, blank=True, null=True)
     msme_number = models.CharField(max_length=50, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
     id_proof_number = models.CharField(max_length=50, blank=True, null=True)
 
-    # सुरक्षित दस्तावेज़ (KYC & Business Proof)
+    # Secure Documents Upload
     pan_doc = models.FileField(upload_to='seller_kyc/pan/', null=True, blank=True)
+    identity_proof = models.FileField(upload_to='seller_docs/identity/', blank=True, null=True)
     identity_proof_doc = models.FileField(upload_to='seller_kyc/identity/', null=True, blank=True)
+    business_document = models.FileField(upload_to='seller_docs/business/', blank=True, null=True)
     business_proof_doc = models.FileField(upload_to='seller_kyc/business/', null=True, blank=True)
+    shop_gps_photo = models.ImageField(upload_to='seller_docs/shop_gps/', blank=True, null=True)
+    store_photo = models.ImageField(upload_to='seller_stores/', null=True, blank=True)
 
-    # बैंकिंग, बैलेंस व ₹1 पेनी-ड्रॉप सत्यापन
+    # Bank & Penny-Drop Verification
     bank_name = models.CharField(max_length=100, default='')
+    bank_holder_name = models.CharField(max_length=255, blank=True, null=True)
     bank_account_name = models.CharField(max_length=150, default='')
     bank_account_number = models.CharField(max_length=30, default='')
+    ifsc_code = models.CharField(max_length=11, default='')
     bank_ifsc_code = models.CharField(max_length=11, default='')
     bank_cheque_doc = models.FileField(upload_to='seller_kyc/bank/', null=True, blank=True)
     bank_account_verified = models.BooleanField(default=False)
-
-    # ₹1 Penny Drop ट्रायल सत्यापन
     penny_drop_verified = models.BooleanField(default=False)
     penny_drop_utr = models.CharField(max_length=100, blank=True, null=True)
-    is_approved = models.BooleanField(default=True)  # मोबाइल ऐप व टेस्टिंग सुगमता के लिए डिफ़ॉल्ट True
+
+    # Status & Approvals
+    is_verified_seller = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=True)
+    terms_accepted = models.BooleanField(default=False)
 
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
@@ -71,29 +86,40 @@ class VendorProfile(models.Model):
 
     created_at = models.DateTimeField(default=timezone.now)
 
+    def save(self, *args, **kwargs):
+        # Sync aliases
+        if self.shop_name and not self.store_name:
+            self.store_name = self.shop_name
+        elif self.store_name and not self.shop_name:
+            self.shop_name = self.store_name
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        status_text = "सत्यापित एवं सक्रिय" if self.is_approved else "₹1 ट्रायल / सत्यापन लंबित"
-        return f"{self.store_name} ({status_text})"
+        status_text = "सत्यापित एवं सक्रिय" if self.is_verified_seller else "सत्यापन लंबित"
+        return f"{self.shop_name or self.store_name} ({status_text})"
 
 
-# --- Automatic Signal: जैसे ही यूजर बने, सेलर प्रोफाइल अपने आप बन जाए ---
+# --- Automatic Signal: Create VendorProfile on User creation ---
 @receiver(post_save, sender=User)
 def create_seller_profile_automatically(sender, instance, created, **kwargs):
     if created:
         base_store_name = f"{instance.username}_store"
         store_name = base_store_name
         counter = 1
-        while VendorProfile.objects.filter(store_name=store_name).exists():
+        while VendorProfile.objects.filter(shop_name=store_name).exists():
             store_name = f"{base_store_name}_{counter}"
             counter += 1
 
         VendorProfile.objects.get_or_create(
             user=instance,
             defaults={
+                'shop_name': store_name,
                 'store_name': store_name,
+                'email': instance.email or f"{instance.username}@orbiskart.com",
                 'business_email': instance.email or f"{instance.username}@orbiskart.com",
+                'is_verified_seller': True,
                 'is_approved': True,
-                'wallet_balance': Decimal('1500.00')  # टेस्टिंग के लिए प्रारंभिक वॉलेट बैलेंस
+                'wallet_balance': Decimal('1500.00')
             }
         )
 
@@ -161,13 +187,8 @@ class ShippingRateCard(models.Model):
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.courier_partner} | {self.zone} (Base: ₹{self.forward_charge}, +500g: ₹{self.per_additional_500g})"
+        return f"{self.courier_partner} | {self.zone}"
 
-
-from decimal import Decimal
-from django.db import models
-from django.contrib.auth.models import User
-from django.utils import timezone
 
 # --- 6. Transparent Product Model ---
 class Product(models.Model):
@@ -208,24 +229,6 @@ class Product(models.Model):
             self.gst_rate = self.category_policy.gst_rate
         super().save(*args, **kwargs)
 
-    def calculate_transparency_ledger(self):
-        """
-        Live Financial Transparency Audit & Ledger Calculation
-        """
-        price = float(getattr(self, 'price', 0))
-        gst = round(price * float(self.gst_rate) / 100.0, 2) if self.gst_rate else round(price * 0.18, 2)
-        delivery = 50.0  # standard or weight based delivery fee
-        gateway_fee = round(price * 0.02, 2)
-        net_credit = round(price - (gst + delivery + gateway_fee), 2)
-        
-        return {
-            "gross_price": price,
-            "gst": gst,
-            "delivery": delivery,
-            "gateway_fee": gateway_fee,
-            "net_credit": net_credit
-        }
-
     def __str__(self):
         return f"{self.title} (₹{self.price})"
 
@@ -237,6 +240,8 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.product.title}"
+
+
 # --- 7. Cart & Items ---
 class Cart(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -300,7 +305,6 @@ class Order(models.Model):
     is_settled_to_vendor = models.BooleanField(default=False)
     vendor_utr = models.CharField(max_length=100, null=True, blank=True)
 
-    it_call_no = models.CharField(max_length=20, default='+91-1800-889-2026')
     support_reference_no = models.CharField(max_length=50, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -315,14 +319,6 @@ class Order(models.Model):
 
 # --- 9. Multi-Courier Reconciliation ---
 class OrderShippingReconciliation(models.Model):
-    STATUS_CHOICES = [
-        ('Estimated', 'अनुमानित (Estimated)'),
-        ('In-Transit', 'मार्ग में (In-Transit)'),
-        ('Delivered', 'डिलीवर (Delivered)'),
-        ('Billed_Discrepancy', 'वजन अंतर (Discrepancy)'),
-        ('Settled', 'बिल सेटल (Settled)'),
-    ]
-
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='shipping_recon')
     courier_partner = models.CharField(max_length=50, default='Delhivery')
     awb_number = models.CharField(max_length=100, blank=True, null=True)
@@ -331,11 +327,11 @@ class OrderShippingReconciliation(models.Model):
     estimated_charge = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('50.00'))
     actual_billed_charge = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     is_discrepancy = models.BooleanField(default=False)
-    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='Estimated')
+    status = models.CharField(max_length=30, default='Estimated')
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Recon #{self.order.id} - {self.courier_partner}"
+        return f"Recon #{self.order.id}"
 
 
 # --- 10. Order Items ---
