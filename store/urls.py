@@ -1,30 +1,36 @@
 from django.urls import path
 from store.views import (
-    ProductListView, ProductDetailView, AddToCartView, CartView,
-    RemoveFromCartView, CreateOrderView, UserOrdersListView,
-    SellerDashboardSummaryView, VendorKYCUpdateView,
-    RegisterSellerComplianceView, VerifyBankDetailsView, SendOtpView, VerifyOtpView, SellerLogoutView
+    ProductListView,
+    ProductDetailView,
+    CartView,
+    AddToCartView,
+    RemoveFromCartView,
+    CreateOrderView,
+    UserOrdersListView,
+    SellerDashboardSummaryView,
+    VendorKYCUpdateView,
+    RegisterSellerComplianceView,
+    VerifyBankDetailsView,
+    SendOtpView,
+    VerifyOtpView,
+    SellerLogoutView,
+    MetaWhatsAppWebhookView,
 )
-
 urlpatterns = [
-    # --- Product & Cart Endpoints ---
     path('products/', ProductListView.as_view(), name='api-products'),
     path('products/<int:pk>/', ProductDetailView.as_view(), name='api-product-detail'),
     path('cart/', CartView.as_view(), name='api-cart'),
     path('cart/add/', AddToCartView.as_view(), name='api-add-to-cart'),
     path('cart/remove/', RemoveFromCartView.as_view(), name='api-remove-from-cart'),
-    
-    # --- Order Endpoints ---
     path('orders/create/', CreateOrderView.as_view(), name='api-create-order'),
     path('orders/', UserOrdersListView.as_view(), name='api-user-orders'),
-    
-    # --- Seller & Compliance Endpoints ---
     path('seller/kyc/', VendorKYCUpdateView.as_view(), name='seller-kyc-update'),
     path('seller/register/', RegisterSellerComplianceView.as_view(), name='seller-register'),
     path('seller/dashboard/', SellerDashboardSummaryView.as_view(), name='seller-dashboard'),
     path('seller/verify-bank/', VerifyBankDetailsView.as_view(), name='verify-bank'),
-    path('seller/register-full/', RegisterSellerComplianceView.as_view(), name='register-seller-full'),
+    path('seller/register-full/', RegisterSellerComplianceView.as_view(), name='register-full'),
     path('seller/send-otp/', SendOtpView.as_view(), name='send-otp'),
     path('seller/verify-otp/', VerifyOtpView.as_view(), name='verify-otp'),
     path('seller/logout/', SellerLogoutView.as_view(), name='seller-logout'),
+    path('seller/webhook/', MetaWhatsAppWebhookView.as_view(), name='meta-whatsapp-webhook'),
 ]

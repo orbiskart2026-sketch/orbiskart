@@ -1,1130 +1,2406 @@
 import io
+
+import os
+
 import random
+
+import secrets
+
 import uuid
-import requests
+
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db import models, transaction
-from django.http import HttpResponse
-from django.contrib.auth.models import User
-from django.conf import settings
-from django.utils import timezone
-from django.core.cache import cache
-from django.contrib.auth import logout
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+import requests
 
 import razorpay
 
-from reportlab.lib.pagesizes import A4
+
+
+from django.conf import settings
+
+from django.contrib.auth import logout
+
+from django.contrib.auth.models import User
+
+from django.core.cache import cache
+
+from django.core.mail import send_mail
+
+from django.db import models, transaction
+
+from django.http import HttpResponse
+
+from django.utils import timezone
+
+
+
+from rest_framework import permissions, status
+
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+
+from rest_framework.response import Response
+
+from rest_framework.views import APIView
+
+
+
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+from reportlab.lib.pagesizes import A4
+
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+
 
 from .models import (
-    Category, CategoryPolicy, ShippingRateCard, Product, ProductImage,
-    Cart, CartItem, Order, OrderItem, Review, 
-    VendorProfile, SellerDeductionSlip, ImmutableMasterTransaction,
-    OrderShippingReconciliation
+
+    Category,
+
+    CategoryPolicy,
+
+    ShippingRateCard,
+
+    Product,
+
+    ProductImage,
+
+    Cart,
+
+    CartItem,
+
+    Order,
+
+    OrderItem,
+
+    Review,
+
+    VendorProfile,
+
+    SellerDeductionSlip,
+
+    ImmutableMasterTransaction,
+
+    OrderShippingReconciliation,
+
 )
+
 from .serializers import (
-    CategorySerializer, CategoryPolicySerializer,
-    ProductSerializer, CartSerializer, OrderSerializer, ReviewSerializer
+
+    CategorySerializer,
+
+    CategoryPolicySerializer,
+
+    ProductSerializer,
+
+    CartSerializer,
+
+    OrderSerializer,
+
+    ReviewSerializer,
+
 )
 
 
-# --- 0. Multi-Courier Dynamic Logistics Engine ---
-def get_best_courier_charge(buyer_pincode, total_weight_grams, payment_mode='PREPAID'):
-    weight = max(500, int(total_weight_grams or 500))
-    extra_slabs = (weight - 500 + 499) // 500
 
-    prefix = str(buyer_pincode)[:2] if buyer_pincode else ""
-    if prefix in ['82', '83']:
+
+
+# ---------------------------------------------------------------------
+
+# Helpers
+
+# ---------------------------------------------------------------------
+
+
+
+def money(value):
+
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+
+
+
+def normalize_mobile(value):
+
+    mobile = re_digits(value)
+
+    if len(mobile) == 10:
+
+        mobile = "91" + mobile
+
+    return mobile
+
+
+
+
+
+def re_digits(value):
+
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+
+
+
+def seller_profile_for(user):
+
+    if not user or not user.is_authenticated:
+
+        return None
+
+    return VendorProfile.objects.filter(user=user).first()
+
+
+
+
+
+def get_best_courier_charge(buyer_pincode, total_weight_grams, payment_mode="PREPAID"):
+
+    weight = max(500, int(total_weight_grams or 500))
+
+    extra_slabs = max(0, (weight - 500 + 499) // 500)
+
+
+
+    prefix = str(buyer_pincode or "")[:2]
+
+    if prefix in ("82", "83"):
+
         target_zone = "Zone B"
-    elif prefix in ['11', '40', '56']:
+
+    elif prefix in ("11", "40", "56"):
+
         target_zone = "Zone C"
-    elif prefix in ['18', '19', '79']:
+
+    elif prefix in ("18", "19", "79"):
+
         target_zone = "Zone E"
+
     else:
+
         target_zone = "Zone D"
 
+
+
     rates = ShippingRateCard.objects.filter(zone=target_zone, is_active=True)
-    courier_options = []
 
-    for r in rates:
-        base_rate = getattr(r, 'forward_charge', None) or getattr(r, 'base_rate', Decimal('50.00'))
-        add_rate = getattr(r, 'per_additional_500g', Decimal('20.00'))
-        cost = Decimal(str(base_rate)) + (Decimal(str(extra_slabs)) * Decimal(str(add_rate)))
-        
-        if payment_mode == 'COD':
-            cost += Decimal(str(getattr(r, 'cod_charge', 0.00)))
+    options = []
 
-        courier_options.append({
-            'courier': r.courier_partner,
-            'cost': cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
-            'zone': target_zone
-        })
+    for rate in rates:
 
-    if courier_options:
-        best_option = min(courier_options, key=lambda x: x['cost'])
-        return best_option['cost'], best_option['courier'], best_option['zone'], weight
-    else:
-        base = Decimal('50.00')
-        add = Decimal('20.00')
-        calc_cost = (base + (Decimal(str(extra_slabs)) * add)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        return calc_cost, "Auto-Aggregator", target_zone, weight
+        base_rate = getattr(rate, "forward_charge", Decimal("50.00"))
+
+        add_rate = getattr(rate, "per_additional_500g", Decimal("20.00"))
+
+        cost = money(base_rate) + Decimal(extra_slabs) * money(add_rate)
+
+        if str(payment_mode).upper() == "COD":
+
+            cost += money(getattr(rate, "cod_charge", 0))
+
+        options.append((money(cost), rate.courier_partner))
 
 
-# --- 1. User Registration API ---
+
+    if options:
+
+        cost, courier = min(options, key=lambda item: item[0])
+
+        return cost, courier, target_zone, weight
+
+
+
+    fallback = money(Decimal("50.00") + Decimal(extra_slabs) * Decimal("20.00"))
+
+    return fallback, "Auto-Aggregator", target_zone, weight
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 1. Customer Registration
+
+# ---------------------------------------------------------------------
+
+
+
 class RegisterAPIView(APIView):
+
     permission_classes = [permissions.AllowAny]
 
+
+
     def post(self, request):
-        username = request.data.get('username')
-        email = request.data.get('email')
-        password = request.data.get('password')
+
+        username = str(request.data.get("username", "")).strip()
+
+        email = str(request.data.get("email", "")).strip()
+
+        password = str(request.data.get("password", ""))
+
+
 
         if not username or not password:
-            return Response({'error': 'Username and Password are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(
+
+                {"error": "Username and Password are required"},
+
+                status=status.HTTP_400_BAD_REQUEST,
+
+            )
 
         if User.objects.filter(username=username).exists():
-            return Response({'error': 'Username already exists'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(
+
+                {"error": "Username already exists"},
+
+                status=status.HTTP_400_BAD_REQUEST,
+
+            )
+
+
 
         user = User.objects.create_user(username=username, email=email, password=password)
+
         Cart.objects.get_or_create(user=user)
-        return Response({'message': 'User registered successfully'}, status=status.HTTP_201_CREATED)
+
+        return Response({"message": "User registered successfully"}, status=status.HTTP_201_CREATED)
 
 
-# --- 2. Product List & Multi-Image Upload API ---
+
+
+
+# ---------------------------------------------------------------------
+
+# 2. Products
+
+# ---------------------------------------------------------------------
+
+
+
 class ProductListView(APIView):
-    permission_classes = [permissions.AllowAny]
+
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+
+
+    def get_permissions(self):
+
+        if self.request.method == "GET":
+
+            return [permissions.AllowAny()]
+
+        return [permissions.IsAuthenticated()]
+
+
+
     def get(self, request):
-        try:
-            default_categories = [
-                "Electronics & Speakers", "Mobile & Accessories", "Fashion & Clothing", 
-                "Footwear & Shoes", "Home & Kitchen Appliances", "Grocery & Daily Needs", 
-                "Beauty & Personal Care", "Sports, Fitness & Toys", "Books, Stationery & Office", 
-                "Automotive & Tools", "Health & Wellness", "Furniture & Decor", 
-                "Jewellery & Watches", "Baby & Kids Care", "Computers & Laptops", 
-                "Gaming & VR", "Pet Supplies", "Industrial & Scientific", 
-                "Garden & Outdoor", "Gifting & Festive Items"
-            ]
-            for cat_name in default_categories:
-                Category.objects.get_or_create(name=cat_name)
 
-            queryset = Product.objects.select_related('category', 'category_policy', 'vendor').prefetch_related('additional_images').all()
+        default_categories = [
 
-            show_all = request.query_params.get('show_all', 'false').lower() == 'true'
-            if not show_all and not (request.user.is_authenticated and request.user.is_staff):
-                queryset = queryset.filter(models.Q(is_active=True) | models.Q(is_active__isnull=True))
+            "Electronics & Speakers", "Mobile & Accessories", "Fashion & Clothing",
 
-            search_query = request.query_params.get('search', '').strip()
-            if search_query:
-                queryset = queryset.filter(
-                    models.Q(title__icontains=search_query) | 
-                    models.Q(description__icontains=search_query)
-                )
+            "Footwear & Shoes", "Home & Kitchen Appliances", "Grocery & Daily Needs",
 
-            category_id = request.query_params.get('category', '').strip()
-            if category_id and category_id.lower() != 'all':
-                queryset = queryset.filter(category_id=category_id)
+            "Beauty & Personal Care", "Sports, Fitness & Toys", "Books, Stationery & Office",
 
-            sort_by = request.query_params.get('sort', '').strip()
-            if sort_by == 'price_low':
-                queryset = queryset.order_by('price')
-            elif sort_by == 'price_high':
-                queryset = queryset.order_by('-price')
-            else:
-                queryset = queryset.order_by('-id')
+            "Automotive & Tools", "Health & Wellness", "Furniture & Decor",
 
-            serializer = ProductSerializer(queryset, many=True, context={'request': request})
-            categories = Category.objects.all().values('id', 'name')
+            "Jewellery & Watches", "Baby & Kids Care", "Computers & Laptops",
 
-            return Response({
-                'products': serializer.data,
-                'categories': list(categories)
-            }, status=status.HTTP_200_OK)
+            "Gaming & VR", "Pet Supplies", "Industrial & Scientific",
 
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            "Garden & Outdoor", "Gifting & Festive Items",
+
+        ]
+
+        for name in default_categories:
+
+            Category.objects.get_or_create(name=name)
+
+
+
+        queryset = (
+
+            Product.objects
+
+            .select_related("category", "category_policy", "vendor")
+
+            .prefetch_related("additional_images")
+
+            .filter(is_active=True)
+
+        )
+
+
+
+        search_query = request.query_params.get("search", "").strip()
+
+        if search_query:
+
+            queryset = queryset.filter(
+
+                models.Q(title__icontains=search_query)
+
+                | models.Q(description__icontains=search_query)
+
+            )
+
+
+
+        category_id = request.query_params.get("category", "").strip()
+
+        if category_id and category_id.lower() != "all":
+
+            queryset = queryset.filter(category_id=category_id)
+
+
+
+        sort_by = request.query_params.get("sort", "").strip()
+
+        if sort_by == "price_low":
+
+            queryset = queryset.order_by("price")
+
+        elif sort_by == "price_high":
+
+            queryset = queryset.order_by("-price")
+
+        else:
+
+            queryset = queryset.order_by("-id")
+
+
+
+        serializer = ProductSerializer(queryset, many=True, context={"request": request})
+
+        categories = Category.objects.all().values("id", "name")
+
+        return Response({"products": serializer.data, "categories": list(categories)})
+
+
 
     def post(self, request):
-        try:
-            data = request.data
-            title = data.get('title', '').strip()
-            price = data.get('price')
-            original_price = data.get('original_price') or price
-            category_id = data.get('category')
-            description = data.get('description', '')
 
-            weight_grams = data.get('weight_grams', 300)
-            pkg_l = data.get('package_length_cm', 10.0)
-            pkg_b = data.get('package_width_cm', 10.0)
-            pkg_h = data.get('package_height_cm', 5.0)
-            hsn_code = data.get('hsn_code', '851830')
-            gst_rate = data.get('gst_rate', '18.00')
+        profile = seller_profile_for(request.user)
 
-            primary_image = request.FILES.get('image')
-            package_photo = request.FILES.get('package_photo')
-            video = request.FILES.get('video')
+        if not profile:
 
-            if not title or not price:
-                return Response({'error': 'उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Seller profile not found."}, status=status.HTTP_403_FORBIDDEN)
 
-            category_obj = None
-            if category_id:
-                category_obj = Category.objects.filter(id=category_id).first()
+        if not profile.is_approved or not profile.is_verified_seller:
 
-            vendor_profile = None
-            seller_user = None
+            return Response(
 
-            if request.user.is_authenticated:
-                seller_user = request.user
-                vendor_profile = getattr(request.user, 'vendor_profile', None) or VendorProfile.objects.filter(user=request.user).first()
+                {"error": "Seller account is pending admin approval."},
 
-            if not vendor_profile:
-                vendor_profile = VendorProfile.objects.order_by('-id').first()
-                if vendor_profile:
-                    seller_user = vendor_profile.user
+                status=status.HTTP_403_FORBIDDEN,
 
-            default_policy = CategoryPolicy.objects.first()
-
-            with transaction.atomic():
-                product = Product.objects.create(
-                    seller=seller_user,
-                    vendor=vendor_profile,
-                    category=category_obj,
-                    category_policy=default_policy,
-                    title=title,
-                    description=description,
-                    price=Decimal(str(price)),
-                    original_price=Decimal(str(original_price)),
-                    weight_grams=int(weight_grams or 300),
-                    package_length_cm=Decimal(str(pkg_l or 10.0)),
-                    package_width_cm=Decimal(str(pkg_b or 10.0)),
-                    package_height_cm=Decimal(str(pkg_h or 5.0)),
-                    package_photo=package_photo,
-                    is_weight_frozen=True,
-                    image=primary_image,
-                    video=video,
-                    is_active=True
-                )
-
-                if hasattr(product, 'hsn_code'):
-                    product.hsn_code = hsn_code
-                if hasattr(product, 'gst_rate'):
-                    product.gst_rate = Decimal(str(gst_rate))
-                product.save()
-
-                gallery_files = request.FILES.getlist('gallery_images') or request.FILES.getlist('extra_images')
-                if gallery_files:
-                    gallery_instances = [
-                        ProductImage(product=product, image=img)
-                        for img in gallery_files if img
-                    ]
-                    if gallery_instances:
-                        ProductImage.objects.bulk_create(gallery_instances)
-
-            return Response({
-                'success': True,
-                'message': f'उत्पाद #{product.id} सफलतापूर्वक लाइव हो गया!',
-                'product_id': product.id,
-                'title': product.title,
-                'price': str(product.price),
-                'is_active': product.is_active
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({'error': f'अपलोड त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            )
 
 
-# --- 3. Product Detail API ---
+
+        data = request.data
+
+        title = str(data.get("title", "")).strip()
+
+        price = data.get("price")
+
+        if not title or price in (None, ""):
+
+            return Response(
+
+                {"error": "उत्पाद का नाम और मूल्य दर्ज करना अनिवार्य है।"},
+
+                status=status.HTTP_400_BAD_REQUEST,
+
+            )
+
+
+
+        category = None
+
+        category_id = data.get("category")
+
+        if category_id:
+
+            category = Category.objects.filter(id=category_id).first()
+
+
+
+        policy = CategoryPolicy.objects.filter(category=category).first() if category else None
+
+        if not policy:
+
+            policy = CategoryPolicy.objects.first()
+
+
+
+        with transaction.atomic():
+
+            product = Product.objects.create(
+
+                seller=request.user,
+
+                vendor=profile,
+
+                category=category,
+
+                category_policy=policy,
+
+                title=title,
+
+                description=data.get("description", ""),
+
+                price=money(price),
+
+                original_price=money(data.get("original_price") or price),
+
+                weight_grams=max(1, int(data.get("weight_grams") or 300)),
+
+                package_length_cm=money(data.get("package_length_cm") or 10),
+
+                package_width_cm=money(data.get("package_width_cm") or 10),
+
+                package_height_cm=money(data.get("package_height_cm") or 5),
+
+                package_photo=request.FILES.get("package_photo"),
+
+                image=request.FILES.get("image"),
+
+                video=request.FILES.get("video"),
+
+                hsn_code=str(data.get("hsn_code") or "851830"),
+
+                gst_rate=money(data.get("gst_rate") or 18),
+
+                is_weight_frozen=True,
+
+                is_active=True,
+
+            )
+
+
+
+            gallery = request.FILES.getlist("gallery_images") or request.FILES.getlist("extra_images")
+
+            ProductImage.objects.bulk_create(
+
+                [ProductImage(product=product, image=image) for image in gallery if image]
+
+            )
+
+
+
+        return Response(
+
+            {
+
+                "success": True,
+
+                "message": f"उत्पाद #{product.id} सफलतापूर्वक लाइव हो गया!",
+
+                "product_id": product.id,
+
+                "title": product.title,
+
+                "price": str(product.price),
+
+                "is_active": product.is_active,
+
+            },
+
+            status=status.HTTP_201_CREATED,
+
+        )
+
+
+
+
+
 class ProductDetailView(APIView):
+
     permission_classes = [permissions.AllowAny]
 
+
+
     def get(self, request, pk):
-        try:
-            product = Product.objects.select_related('category', 'category_policy').prefetch_related('reviews__user', 'additional_images').filter(pk=pk).first()
-            if not product:
-                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
-            serializer = ProductSerializer(product, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        product = (
+
+            Product.objects
+
+            .select_related("category", "category_policy", "vendor")
+
+            .prefetch_related("reviews__user", "additional_images")
+
+            .filter(pk=pk, is_active=True)
+
+            .first()
+
+        )
+
+        if not product:
+
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(ProductSerializer(product, context={"request": request}).data)
 
 
-# --- 4. Cart Operations API ---
+
+
+
+# ---------------------------------------------------------------------
+
+# 3. Cart
+
+# ---------------------------------------------------------------------
+
+
+
 class CartView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def get(self, request):
-        try:
-            cart, _ = Cart.objects.get_or_create(user=request.user)
-            serializer = CartSerializer(cart, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+
+        return Response(CartSerializer(cart, context={"request": request}).data)
+
+
+
 
 
 class AddToCartView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request):
+
         try:
-            product_id = request.data.get('product_id')
-            quantity = int(request.data.get('quantity', 1))
 
-            product = Product.objects.filter(id=product_id).first()
-            if not product:
-                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+            quantity = int(request.data.get("quantity", 1))
 
-            cart, _ = Cart.objects.get_or_create(user=request.user)
-            cart_item, created = CartItem.objects.get_or_create(cart=cart, product=product)
-            if not created:
-                cart_item.quantity += quantity
-            else:
-                cart_item.quantity = quantity
-            cart_item.save()
+        except (TypeError, ValueError):
 
-            return Response({'message': 'Product added to cart'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            quantity = 1
+
+        quantity = max(1, quantity)
+
+
+
+        product = Product.objects.filter(id=request.data.get("product_id"), is_active=True).first()
+
+        if not product:
+
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if product.stock < quantity:
+
+            return Response({"error": "Insufficient stock"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+        cart, _ = Cart.objects.get_or_create(user=request.user)
+
+        item, created = CartItem.objects.get_or_create(cart=cart, product=product)
+
+        item.quantity = quantity if created else item.quantity + quantity
+
+        if item.quantity > product.stock:
+
+            return Response({"error": "Insufficient stock"}, status=status.HTTP_400_BAD_REQUEST)
+
+        item.save()
+
+        return Response({"message": "Product added to cart"})
+
+
+
 
 
 class UpdateCartItemView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request):
-        try:
-            item_id = request.data.get('item_id')
-            action = request.data.get('action')
 
-            cart_item = CartItem.objects.filter(id=item_id, cart__user=request.user).first()
-            if not cart_item:
-                return Response({'error': 'Item not found'}, status=status.HTTP_404_NOT_FOUND)
+        item = CartItem.objects.filter(
 
-            if action == 'increase':
-                cart_item.quantity += 1
-                cart_item.save()
-            elif action == 'decrease':
-                if cart_item.quantity > 1:
-                    cart_item.quantity -= 1
-                    cart_item.save()
-                else:
-                    cart_item.delete()
+            id=request.data.get("item_id"), cart__user=request.user
 
-            return Response({'message': 'Cart updated successfully'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        ).select_related("product").first()
+
+        if not item:
+
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+        action = request.data.get("action")
+
+        if action == "increase":
+
+            if item.quantity >= item.product.stock:
+
+                return Response({"error": "Insufficient stock"}, status=status.HTTP_400_BAD_REQUEST)
+
+            item.quantity += 1
+
+            item.save()
+
+        elif action == "decrease":
+
+            if item.quantity > 1:
+
+                item.quantity -= 1
+
+                item.save()
+
+            else:
+
+                item.delete()
+
+        else:
+
+            return Response({"error": "Invalid action"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Cart updated successfully"})
+
+
+
 
 
 class RemoveFromCartView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request):
-        try:
-            item_id = request.data.get('item_id')
-            cart_item = CartItem.objects.filter(id=item_id, cart__user=request.user).first()
-            if not cart_item:
-                return Response({'error': 'Item not found'}, status=status.HTTP_404_NOT_FOUND)
 
-            cart_item.delete()
-            return Response({'message': 'Item removed successfully'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        item = CartItem.objects.filter(
+
+            id=request.data.get("item_id"), cart__user=request.user
+
+        ).first()
+
+        if not item:
+
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        item.delete()
+
+        return Response({"message": "Item removed successfully"})
 
 
-# --- 5. Order Checkout with Multi-Courier Rate Selection ---
+
+
+
+# ---------------------------------------------------------------------
+
+# 4. Checkout / Orders
+
+# ---------------------------------------------------------------------
+
+
+
 class CreateOrderView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request):
-        try:
-            user = request.user
-            shipping_address = request.data.get('shipping_address', '').strip()
-            shipping_pincode = request.data.get('shipping_pincode', '').strip()
-            payment_method = request.data.get('payment_method', 'COD')
 
-            if not shipping_address:
-                return Response({'error': 'कृपया डिलीवरी पता दर्ज करें।'}, status=status.HTTP_400_BAD_REQUEST)
+        shipping_address = str(request.data.get("shipping_address", "")).strip()
 
-            cart = Cart.objects.filter(user=user).first()
-            if not cart or not cart.items.exists():
-                return Response({'error': 'कार्ट में कोई सामान नहीं है।'}, status=status.HTTP_400_BAD_REQUEST)
+        shipping_pincode = re_digits(request.data.get("shipping_pincode", ""))
 
-            cart_items = cart.items.select_related('product').all()
+        payment_method = str(request.data.get("payment_method", "COD")).upper()
 
-            subtotal = sum(item.product.price * item.quantity for item in cart_items)
-            original_subtotal = sum(
-                (item.product.original_price or item.product.price) * item.quantity 
-                for item in cart_items
+
+
+        if not shipping_address:
+
+            return Response({"error": "कृपया डिलीवरी पता दर्ज करें।"}, status=400)
+
+        if shipping_pincode and len(shipping_pincode) != 6:
+
+            return Response({"error": "Shipping PIN code invalid."}, status=400)
+
+
+
+        cart = Cart.objects.filter(user=request.user).first()
+
+        if not cart or not cart.items.exists():
+
+            return Response({"error": "कार्ट में कोई सामान नहीं है।"}, status=400)
+
+
+
+        with transaction.atomic():
+
+            items = list(
+
+                cart.items.select_related("product", "product__vendor").select_for_update()
+
             )
 
-            total_cart_weight = sum(
-                (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity 
-                for item in cart_items
-            )
-            courier_charge, best_courier, zone, billed_weight = get_best_courier_charge(
-                shipping_pincode, total_cart_weight, payment_mode=payment_method
-            )
+            for item in items:
 
-            gst_divisor = Decimal('1.18')
-            base_price = (subtotal / gst_divisor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            tax_amount = (subtotal - base_price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            discount_amount = max(Decimal('0.00'), original_subtotal - subtotal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            total_price = subtotal + courier_charge
+                if not item.product.is_active or item.product.stock < item.quantity:
 
-            delivery_otp = f"{random.randint(100000, 999999)}"
-            return_otp = f"{random.randint(100000, 999999)}"
-            awb_number = f"AWB-{uuid.uuid4().hex[:10].upper()}"
+                    return Response(
 
-            with transaction.atomic():
-                order = Order.objects.create(
-                    user=user,
-                    base_price=base_price,
-                    tax_amount=tax_amount,
-                    delivery_fee=courier_charge,
-                    discount_amount=discount_amount,
-                    total_price=total_price,
-                    payment_method=payment_method,
-                    shipping_address=shipping_address,
-                    shipping_pincode=shipping_pincode,
-                    status='Confirmed' if payment_method == 'COD' else 'Pending Payment',
-                    delivery_otp=delivery_otp,
-                    return_otp=return_otp,
-                    courier_partner=best_courier,
-                    awb_number=awb_number
-                )
+                        {"error": f"{item.product.title} के लिए पर्याप्त stock नहीं है।"},
 
-                OrderShippingReconciliation.objects.create(
-                    order=order,
-                    courier_partner=best_courier,
-                    awb_number=awb_number,
-                    estimated_weight_g=billed_weight,
-                    estimated_charge=courier_charge,
-                    status='Estimated'
-                )
+                        status=400,
 
-                order_items_to_create = [
-                    OrderItem(
-                        order=order,
-                        product=item.product,
-                        vendor=item.product.vendor,
-                        price=item.product.price,
-                        quantity=item.quantity
                     )
-                    for item in cart_items
-                ]
-                OrderItem.objects.bulk_create(order_items_to_create)
-                cart_items.delete()
-
-            return Response({
-                'message': 'Order placed successfully',
-                'order_id': order.id,
-                'status': order.status,
-                'courier_partner': best_courier,
-                'shipping_zone': zone,
-                'delivery_fee': str(courier_charge),
-                'delivery_otp': order.delivery_otp,
-                'total_price': str(order.total_price)
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 6. Fraud Prevention: 2-Way OTP Verification & T+3 Settlement API ---
+
+            subtotal = sum((item.product.price * item.quantity for item in items), Decimal("0"))
+
+            original_subtotal = sum(
+
+                ((item.product.original_price or item.product.price) * item.quantity for item in items),
+
+                Decimal("0"),
+
+            )
+
+            total_weight = sum((item.product.weight_grams or 500) * item.quantity for item in items)
+
+            courier_charge, courier, zone, billed_weight = get_best_courier_charge(
+
+                shipping_pincode, total_weight, payment_method
+
+            )
+
+
+
+            # Existing application currently treats displayed product prices as GST-inclusive.
+
+            base_price = money(subtotal / Decimal("1.18"))
+
+            tax_amount = money(subtotal - base_price)
+
+            discount_amount = money(max(Decimal("0"), original_subtotal - subtotal))
+
+            total_price = money(subtotal + courier_charge)
+
+
+
+            order = Order.objects.create(
+
+                user=request.user,
+
+                base_price=base_price,
+
+                tax_amount=tax_amount,
+
+                delivery_fee=courier_charge,
+
+                discount_amount=discount_amount,
+
+                total_price=total_price,
+
+                payment_method=payment_method,
+
+                shipping_address=shipping_address,
+
+                shipping_pincode=shipping_pincode,
+
+                status="Confirmed" if payment_method == "COD" else "Pending Payment",
+
+                delivery_otp=f"{random.randint(100000, 999999)}",
+
+                return_otp=f"{random.randint(100000, 999999)}",
+
+                courier_partner=courier,
+
+                awb_number=f"AWB-{uuid.uuid4().hex[:10].upper()}",
+
+            )
+
+
+
+            OrderShippingReconciliation.objects.create(
+
+                order=order,
+
+                courier_partner=courier,
+
+                awb_number=order.awb_number,
+
+                estimated_weight_g=billed_weight,
+
+                estimated_charge=courier_charge,
+
+                status="Estimated",
+
+            )
+
+
+
+            for item in items:
+
+                OrderItem.objects.create(
+
+                    order=order,
+
+                    product=item.product,
+
+                    vendor=item.product.vendor,
+
+                    price=item.product.price,
+
+                    quantity=item.quantity,
+
+                )
+
+                item.product.stock -= item.quantity
+
+                item.product.save(update_fields=["stock"])
+
+
+
+            cart.items.all().delete()
+
+
+
+        return Response(
+
+            {
+
+                "message": "Order placed successfully",
+
+                "order_id": order.id,
+
+                "status": order.status,
+
+                "courier_partner": courier,
+
+                "shipping_zone": zone,
+
+                "delivery_fee": str(courier_charge),
+
+                "total_price": str(order.total_price),
+
+            },
+
+            status=status.HTTP_201_CREATED,
+
+        )
+
+
+
+
+
 class VerifyOrderOTPView(APIView):
-    permission_classes = [permissions.AllowAny]
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
 
     def post(self, request, order_id):
-        try:
-            order = Order.objects.filter(id=order_id).first()
-            if not order:
-                return Response({'error': 'ऑर्डर नहीं मिला।'}, status=status.HTTP_404_NOT_FOUND)
 
-            otp_type = request.data.get('type', 'DELIVERY')
-            entered_otp = str(request.data.get('otp', '')).strip()
+        order = Order.objects.filter(id=order_id).first()
 
-            if not entered_otp:
-                return Response({'error': 'OTP दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+        if not order:
 
-            if otp_type == 'DELIVERY':
-                if str(order.delivery_otp).strip() == entered_otp:
-                    order.status = 'Delivered'
-                    order.settlement_due_date = timezone.now() + timezone.timedelta(days=3)
-                    order.save()
-                    if hasattr(order, 'shipping_recon'):
-                        order.shipping_recon.status = 'Delivered'
-                        order.shipping_recon.save()
-                    return Response({
-                        'success': True, 
-                        'message': f'ऑर्डर #{order.id} डिलीवर हुआ। T+3 सेटलमेंट दिनांक: {order.settlement_due_date.strftime("%d-%b-%Y")}'
-                    }, status=status.HTTP_200_OK)
-                return Response({'error': 'गलत डिलीवरी OTP! पार्सल न दें।'}, status=status.HTTP_400_BAD_REQUEST)
-
-            elif otp_type == 'RETURN':
-                if str(order.return_otp).strip() == entered_otp:
-                    order.status = 'Returned & Refunded'
-                    order.save()
-                    return Response({'success': True, 'message': f'ऑर्डर #{order.id} का रिटर्न सत्यापित हुआ। रिफंड जारी किया जा रहा है।'}, status=status.HTTP_200_OK)
-                return Response({'error': 'गलत रिटर्न OTP! पार्सल स्वीकार न करें।'}, status=status.HTTP_400_BAD_REQUEST)
-
-            return Response({'error': 'अमान्य सत्यापन अनुरोध'}, status=status.HTTP_400_BAD_REQUEST)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "ऑर्डर नहीं मिला।"}, status=404)
 
 
-# --- 7. User Orders List API ---
+
+        # Customer may verify own return; staff can perform operational delivery verification.
+
+        if not request.user.is_staff and order.user_id != request.user.id:
+
+            return Response({"error": "Permission denied."}, status=403)
+
+
+
+        entered = str(request.data.get("otp", "")).strip()
+
+        otp_type = str(request.data.get("type", "DELIVERY")).upper()
+
+        if not entered:
+
+            return Response({"error": "OTP दर्ज करना अनिवार्य है।"}, status=400)
+
+
+
+        if otp_type == "DELIVERY":
+
+            if not secrets.compare_digest(str(order.delivery_otp or ""), entered):
+
+                return Response({"error": "गलत डिलीवरी OTP।"}, status=400)
+
+            order.status = "Delivered"
+
+            order.settlement_due_date = timezone.now() + timezone.timedelta(days=3)
+
+            order.delivery_otp = None
+
+            order.save(update_fields=["status", "settlement_due_date", "delivery_otp"])
+
+            recon = OrderShippingReconciliation.objects.filter(order=order).first()
+
+            if recon:
+
+                recon.status = "Delivered"
+
+                recon.save(update_fields=["status", "updated_at"])
+
+            return Response({"success": True, "message": "Delivery verified successfully."})
+
+
+
+        if otp_type == "RETURN":
+
+            if not secrets.compare_digest(str(order.return_otp or ""), entered):
+
+                return Response({"error": "गलत रिटर्न OTP।"}, status=400)
+
+            order.status = "Returned & Refunded"
+
+            order.return_otp = None
+
+            order.save(update_fields=["status", "return_otp"])
+
+            return Response({"success": True, "message": "Return verified successfully."})
+
+
+
+        return Response({"error": "अमान्य सत्यापन अनुरोध"}, status=400)
+
+
+
+
+
 class UserOrdersListView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def get(self, request):
-        try:
-            orders = Order.objects.filter(user=request.user).order_by('-created_at')
-            serializer = OrderSerializer(orders, many=True, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        orders = Order.objects.filter(user=request.user).order_by("-created_at")
+
+        return Response(OrderSerializer(orders, many=True, context={"request": request}).data)
 
 
-# --- 8. 1-Click GST Tax Invoice PDF Generator ---
+
+
+
+# ---------------------------------------------------------------------
+
+# 5. Invoice
+
+# ---------------------------------------------------------------------
+
+
+
 class DownloadInvoicePDFView(APIView):
-    permission_classes = [permissions.AllowAny]
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
 
     def get(self, request, order_id):
-        try:
-            order = Order.objects.filter(id=order_id).first()
-            if not order:
-                return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
 
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(
-                buffer, 
-                pagesize=A4, 
-                rightMargin=30, 
-                leftMargin=30, 
-                topMargin=30, 
-                bottomMargin=30
-            )
+        order = Order.objects.filter(id=order_id).first()
 
-            story = []
-            styles = getSampleStyleSheet()
+        if not order:
 
-            normal_style = ParagraphStyle(
-                'NormalStyle', 
-                parent=styles['Normal'], 
-                fontSize=9, 
-                leading=12, 
-                textColor=colors.HexColor('#1F2937')
-            )
-            bold_style = ParagraphStyle(
-                'BoldStyle', 
-                parent=styles['Normal'], 
-                fontSize=9, 
-                leading=12, 
-                fontName="Helvetica-Bold", 
-                textColor=colors.HexColor('#111827')
-            )
+            return Response({"error": "Order not found"}, status=404)
 
-            header_data = [
-                [
-                    Paragraph("<b>OrbisKart Retail India Pvt Ltd</b><br/>GSTIN: <b>20AAACM1234F1Z5</b><br/>State: Jharkhand (Code: 20)", normal_style),
-                    Paragraph("<b>TAX INVOICE</b><br/>(Original for Recipient)<br/><b>Invoice No:</b> ORB-INV-2026-00" + str(order.id) + "<br/><b>Date:</b> " + order.created_at.strftime('%d-%b-%Y'), normal_style)
-                ]
-            ]
-            t_header = Table(header_data, colWidths=[270, 260])
-            t_header.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-            ]))
-            story.append(t_header)
-            story.append(Spacer(1, 10))
+        if not request.user.is_staff and order.user_id != request.user.id:
 
-            customer_data = [
-                [
-                    Paragraph("<b>Bill To / Ship To:</b><br/>" + str(order.user.username) + "<br/>" + str(order.shipping_address or 'N/A') + "<br/>Pincode: " + str(order.shipping_pincode or 'N/A'), normal_style),
-                    Paragraph("<b>Order Details:</b><br/><b>Order ID:</b> #" + str(order.id) + "<br/><b>Courier:</b> " + str(order.courier_partner) + "<br/><b>AWB:</b> " + str(order.awb_number or 'N/A') + "<br/><b>Payment Mode:</b> " + str(order.payment_method) + "<br/><b>Status:</b> " + str(order.status), normal_style)
-                ]
-            ]
-            t_cust = Table(customer_data, colWidths=[270, 260])
-            t_cust.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F3F4F6')),
-                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E7EB')),
-                ('PADDING', (0,0), (-1,-1), 8),
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ]))
-            story.append(t_cust)
-            story.append(Spacer(1, 15))
-
-            table_rows = [
-                [
-                    Paragraph("<b>#</b>", bold_style),
-                    Paragraph("<b>Description</b>", bold_style),
-                    Paragraph("<b>HSN</b>", bold_style),
-                    Paragraph("<b>Qty</b>", bold_style),
-                    Paragraph("<b>Base Price</b>", bold_style),
-                    Paragraph("<b>CGST (9%)</b>", bold_style),
-                    Paragraph("<b>SGST (9%)</b>", bold_style),
-                    Paragraph("<b>Total (INR)</b>", bold_style)
-                ]
-            ]
-
-            idx = 1
-            for item in order.items.select_related('product').all():
-                gross_unit = float(item.price)
-                item_total = gross_unit * item.quantity
-                base_unit = round(item_total / 1.18, 2)
-                gst_total = item_total - base_unit
-                cgst = round(gst_total / 2, 2)
-                sgst = round(gst_total / 2, 2)
-                hsn = getattr(item.product, 'hsn_code', '851830') or '851830'
-
-                table_rows.append([
-                    Paragraph(str(idx), normal_style),
-                    Paragraph(str(item.product.title), normal_style),
-                    Paragraph(str(hsn), normal_style),
-                    Paragraph(str(item.quantity), normal_style),
-                    Paragraph(f"Rs. {base_unit}", normal_style),
-                    Paragraph(f"Rs. {cgst}", normal_style),
-                    Paragraph(f"Rs. {sgst}", normal_style),
-                    Paragraph(f"Rs. {round(item_total, 2)}", bold_style),
-                ])
-                idx += 1
-
-            t_items = Table(table_rows, colWidths=[25, 170, 55, 30, 65, 60, 60, 65])
-            t_items.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E5E7EB')),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('PADDING', (0,0), (-1,-1), 5),
-            ]))
-            story.append(t_items)
-            story.append(Spacer(1, 12))
-
-            summary_data = [
-                ["", Paragraph("<b>Taxable Base Amount:</b>", normal_style), Paragraph(f"Rs. {order.base_price}", normal_style)],
-                ["", Paragraph("<b>Total GST (18%):</b>", normal_style), Paragraph(f"Rs. {order.tax_amount}", normal_style)],
-                ["", Paragraph("<b>Delivery / Shipping:</b>", normal_style), Paragraph(f"Rs. {order.delivery_fee}", normal_style)],
-                ["", Paragraph("<b>Grand Total:</b>", bold_style), Paragraph(f"<b>Rs. {order.total_price}</b>", bold_style)],
-            ]
-            t_summary = Table(summary_data, colWidths=[250, 160, 120])
-            t_summary.setStyle(TableStyle([
-                ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('PADDING', (0,0), (-1,-1), 3),
-            ]))
-            story.append(t_summary)
-            story.append(Spacer(1, 25))
-
-            footer_data = [
-                [
-                    Paragraph("<b>Declaration:</b><br/>We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.", normal_style),
-                    Paragraph("<b>For OrbisKart Retail India Pvt Ltd</b><br/><br/><i>Authorized Signatory</i>", normal_style)
-                ]
-            ]
-            t_foot = Table(footer_data, colWidths=[310, 220])
-            t_foot.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('ALIGN', (1,0), (1,-1), 'RIGHT'),
-            ]))
-            story.append(t_foot)
-
-            doc.build(story)
-            buffer.seek(0)
-            
-            response = HttpResponse(buffer, content_type='application/pdf')
-            response['Content-Disposition'] = f'attachment; filename="Invoice_Order_{order.id}.pdf"'
-            return response
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Permission denied"}, status=403)
 
 
-# --- 9. Add Review API ---
+
+        buffer = io.BytesIO()
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+
+        styles = getSampleStyleSheet()
+
+        normal = ParagraphStyle("NormalStyle", parent=styles["Normal"], fontSize=9, leading=12)
+
+        bold = ParagraphStyle("BoldStyle", parent=normal, fontName="Helvetica-Bold")
+
+        story = [
+
+            Paragraph("<b>OrbisKart Tax Invoice</b>", styles["Title"]),
+
+            Spacer(1, 10),
+
+            Paragraph(f"<b>Order ID:</b> #{order.id}", normal),
+
+            Paragraph(f"<b>Date:</b> {order.created_at.strftime('%d-%b-%Y')}", normal),
+
+            Paragraph(f"<b>Customer:</b> {order.user.username}", normal),
+
+            Paragraph(f"<b>Shipping Address:</b> {order.shipping_address}", normal),
+
+            Spacer(1, 12),
+
+        ]
+
+
+
+        rows = [["#", "Description", "HSN", "Qty", "Price", "Total"]]
+
+        for idx, item in enumerate(order.items.select_related("product").all(), 1):
+
+            rows.append([
+
+                str(idx),
+
+                item.product.title,
+
+                item.product.hsn_code,
+
+                str(item.quantity),
+
+                f"Rs. {item.price}",
+
+                f"Rs. {money(item.price * item.quantity)}",
+
+            ])
+
+        table = Table(rows, colWidths=[25, 220, 60, 40, 80, 80])
+
+        table.setStyle(TableStyle([
+
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+
+        ]))
+
+        story.extend([
+
+            table,
+
+            Spacer(1, 12),
+
+            Paragraph(f"<b>Taxable Base:</b> Rs. {order.base_price}", normal),
+
+            Paragraph(f"<b>GST:</b> Rs. {order.tax_amount}", normal),
+
+            Paragraph(f"<b>Shipping:</b> Rs. {order.delivery_fee}", normal),
+
+            Paragraph(f"<b>Grand Total:</b> Rs. {order.total_price}", bold),
+
+        ])
+
+        doc.build(story)
+
+        buffer.seek(0)
+
+        response = HttpResponse(buffer, content_type="application/pdf")
+
+        response["Content-Disposition"] = f'attachment; filename="Invoice_Order_{order.id}.pdf"'
+
+        return response
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 6. Reviews
+
+# ---------------------------------------------------------------------
+
+
+
 class AddProductReviewView(APIView):
+
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request, pk):
+
+        product = Product.objects.filter(pk=pk).first()
+
+        if not product:
+
+            return Response({"error": "Product not found"}, status=404)
+
+
+
         try:
-            user = request.user
-            product = Product.objects.filter(pk=pk).first()
-            if not product:
-                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
 
-            rating = int(request.data.get('rating', 5))
-            comment = request.data.get('comment', '').strip()
+            rating = int(request.data.get("rating", 5))
 
-            if not comment:
-                return Response({'error': 'कृपया अपनी समीक्षा लिखें।'}, status=status.HTTP_400_BAD_REQUEST)
+        except (TypeError, ValueError):
 
-            if rating < 1 or rating > 5:
-                return Response({'error': 'रेटिंग 1 से 5 स्टार के बीच होनी चाहिए।'}, status=status.HTTP_400_BAD_REQUEST)
-
-            review = Review.objects.create(
-                product=product,
-                user=user,
-                rating=rating,
-                comment=comment
-            )
-
-            serializer = ReviewSerializer(review, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Invalid rating"}, status=400)
 
 
-# --- 10. Seller Hub Dashboard Summary ---
+
+        comment = str(request.data.get("comment", "")).strip()
+
+        if not comment:
+
+            return Response({"error": "कृपया अपनी समीक्षा लिखें।"}, status=400)
+
+        if rating < 1 or rating > 5:
+
+            return Response({"error": "रेटिंग 1 से 5 स्टार के बीच होनी चाहिए।"}, status=400)
+
+
+
+        review = Review.objects.create(
+
+            product=product, user=request.user, rating=rating, comment=comment
+
+        )
+
+        return Response(
+
+            ReviewSerializer(review, context={"request": request}).data,
+
+            status=status.HTTP_201_CREATED,
+
+        )
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 7. Seller Dashboard - seller data isolation enforced
+
+# ---------------------------------------------------------------------
+
+
+
 class SellerDashboardSummaryView(APIView):
-    permission_classes = [permissions.AllowAny]
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
 
     def get(self, request):
-        try:
-            profile = None
-            if request.user.is_authenticated and hasattr(request.user, 'vendor_profile'):
-                profile = request.user.vendor_profile
-            elif request.user.is_authenticated:
-                profile = VendorProfile.objects.filter(user=request.user).first()
-            
-            if not profile:
-                profile = VendorProfile.objects.order_by('-id').first()
 
-            if not profile:
-                return Response({"error": "कोई सेलर प्रोफ़ाइल नहीं मिली।"}, status=status.HTTP_404_NOT_FOUND)
+        profile = seller_profile_for(request.user)
 
-            seller_orders = Order.objects.filter(items__vendor=profile).distinct()
-            total_orders = seller_orders.count()
-            delivered_orders = seller_orders.filter(status='Delivered').count()
-            returned_orders = seller_orders.filter(status__icontains='Return').count()
+        if not profile:
 
-            acc_num = profile.bank_account_number or ""
-            masked = f"XXXXXX{acc_num[-4:]}" if len(acc_num) >= 4 else (acc_num or "N/A")
-
-            recent_slips = SellerDeductionSlip.objects.filter(vendor=profile).order_by('-created_at')[:10]
-            slips_data = [
-                {
-                    "slip_number": slip.slip_number,
-                    "order_id": slip.order.id if slip.order else "N/A",
-                    "gross_amount": str(slip.gross_order_amount),
-                    "deductions": str(slip.courier_charge + slip.platform_and_pg_fee + slip.rto_risk_deduction),
-                    "net_settled": str(slip.final_settlement_amount),
-                    "is_settled": slip.is_settled_to_bank,
-                    "utr": slip.settlement_reference_utr or "Pending"
-                }
-                for slip in recent_slips
-            ]
-
-            return Response({
-                "store_name": profile.store_name,
-                "is_approved": profile.is_approved,
-                "penny_drop_verified": profile.penny_drop_verified,
-                "is_orbiskart_mall": profile.is_orbiskart_mall,
-                "wallet_balance": str(profile.wallet_balance),
-                "quality_score": str(profile.quality_score),
-                "orders_summary": {
-                    "total": total_orders,
-                    "delivered": delivered_orders,
-                    "returns": returned_orders
-                },
-                "banking": {
-                    "bank_name": profile.bank_name or "State Bank of India",
-                    "account_masked": masked,
-                    "ifsc": profile.bank_ifsc_code or "SBIN0000090",
-                    "is_verified": profile.bank_account_verified or True
-                },
-                "support": {
-                    "it_call_no": "+91-1800-889-2026",
-                    "support_email": "seller-priority@orbiskart.com"
-                },
-                "deduction_slips": slips_data
-            }, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Seller profile not found."}, status=404)
 
 
-# --- 11. Razorpay: Create Order API ---
-class CreateRazorpayOrderView(APIView):
-    permission_classes = [permissions.AllowAny]
 
-    def post(self, request):
-        try:
-            amount = request.data.get('amount')
-            if not amount:
-                return Response({'error': 'राशि दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
+        seller_orders = Order.objects.filter(items__vendor=profile).distinct()
 
-            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            
-            payment_data = {
-                'amount': int(Decimal(str(amount)) * 100),
-                'currency': 'INR',
-                'payment_capture': '1'
+        account = profile.bank_account_number or ""
+
+        masked = f"XXXXXX{account[-4:]}" if len(account) >= 4 else "N/A"
+
+
+
+        slips = SellerDeductionSlip.objects.filter(vendor=profile).select_related("order").order_by("-created_at")[:10]
+
+        slip_data = [
+
+            {
+
+                "slip_number": slip.slip_number,
+
+                "order_id": slip.order_id,
+
+                "net_settled": str(slip.final_settlement_amount),
+
+                "created_at": slip.created_at.isoformat(),
+
             }
-            
-            razorpay_order = client.order.create(data=payment_data)
 
-            return Response({
-                'razorpay_order_id': razorpay_order['id'],
-                'amount': razorpay_order['amount'],
-                'currency': razorpay_order['currency'],
-                'key_id': settings.RAZORPAY_KEY_ID
-            }, status=status.HTTP_200_OK)
+            for slip in slips
 
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        ]
 
 
-# --- 12. Razorpay: Verify Payment & Deduction Slip API ---
-class VerifyRazorpayPaymentView(APIView):
-    permission_classes = [permissions.AllowAny]
 
-    def post(self, request):
-        try:
-            razorpay_order_id = request.data.get('razorpay_order_id')
-            razorpay_payment_id = request.data.get('razorpay_payment_id')
-            razorpay_signature = request.data.get('razorpay_signature')
-            order_id = request.data.get('order_id')
+        return Response({
 
-            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            
-            client.utility.verify_payment_signature({
-                'razorpay_order_id': razorpay_order_id,
-                'razorpay_payment_id': razorpay_payment_id,
-                'razorpay_signature': razorpay_signature
-            })
+            "store_name": profile.store_name or profile.shop_name,
 
-            order = None
-            if order_id:
-                order = Order.objects.filter(id=order_id).first()
+            "is_approved": profile.is_approved,
 
-            if order:
-                order.status = 'Confirmed'
-                order.payment_method = 'Razorpay-Prepaid'
-                order.save()
+            "is_verified_seller": profile.is_verified_seller,
 
-                for item in order.items.select_related('vendor', 'product', 'product__category_policy').all():
-                    if item.vendor:
-                        gross = item.price * Decimal(str(item.quantity))
-                        pg_charge = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        
-                        item_weight = (getattr(item.product, 'weight_grams', 500) or 500) * item.quantity
-                        courier_charge, best_courier, zone, _ = get_best_courier_charge(
-                            order.shipping_pincode, item_weight, payment_mode='Razorpay-Prepaid'
-                        )
+            "penny_drop_verified": profile.penny_drop_verified,
 
-                        comm_rate = getattr(item.vendor, 'commission_rate', Decimal('3.00'))
-                        if hasattr(item.product, 'category_policy') and item.product.category_policy:
-                            comm_rate = getattr(item.product.category_policy, 'platform_fee_percent', comm_rate)
-                        
-                        platform_comm = ((gross * Decimal(str(comm_rate))) / Decimal('100')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                        net_settled = gross - pg_charge - courier_charge - platform_comm
+            "is_orbiskart_mall": profile.is_orbiskart_mall,
 
-                        SellerDeductionSlip.objects.create(
-                            vendor=item.vendor,
-                            order=order,
-                            slip_number=f"SLIP-{order.id}-{item.id}",
-                            gross_order_amount=gross,
-                            gst_collected=getattr(item, 'product_gst_amount', Decimal('0.00')),
-                            courier_charge=courier_charge,
-                            platform_and_pg_fee=pg_charge + platform_comm,
-                            rto_risk_deduction=Decimal('0.00'),
-                            final_settlement_amount=max(Decimal('0.00'), net_settled),
-                            is_settled_to_bank=False
-                        )
+            "wallet_balance": str(profile.wallet_balance),
 
-            return Response({
-                'success': True,
-                'message': 'भुगतान सफलतापूर्वक सत्यापित हुआ एवं ऑर्डर कन्फर्म हो गया।'
-            }, status=status.HTTP_200_OK)
+            "quality_score": str(profile.quality_score),
 
-        except razorpay.errors.SignatureVerificationError:
-            return Response({'error': 'भुगतान सत्यापन विफल: अमान्य सिग्नेचर।'}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            "orders_summary": {
+
+                "total": seller_orders.count(),
+
+                "delivered": seller_orders.filter(status="Delivered").count(),
+
+                "returns": seller_orders.filter(status__icontains="Return").count(),
+
+            },
+
+            "banking": {
+
+                "bank_name": profile.bank_name or "",
+
+                "account_masked": masked,
+
+                "ifsc": profile.bank_ifsc_code or profile.ifsc_code or "",
+
+                "is_verified": bool(profile.bank_account_verified or profile.penny_drop_verified),
+
+            },
+
+            "deduction_slips": slip_data,
+
+        })
 
 
-# --- 13. BBPS & Utility Bill Engine API ---
-class UtilityBillEngineView(APIView):
-    permission_classes = [permissions.AllowAny]
+
+
+
+# ---------------------------------------------------------------------
+
+# 8. Razorpay
+
+# ---------------------------------------------------------------------
+
+
+
+class CreateRazorpayOrderView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
 
     def post(self, request):
-        service = request.data.get('service_type')
-        amount = Decimal(str(request.data.get('amount', 0)))
-        consumer_id = request.data.get('consumer_id')
 
-        if amount <= 0:
-            return Response({'error': 'अमान्य राशि'}, status=status.HTTP_400_BAD_REQUEST)
+        order_id = request.data.get("order_id")
 
-        operator_ref = f"BBPS-{uuid.uuid4().hex[:10].upper()}"
+        order = Order.objects.filter(id=order_id, user=request.user).first()
 
-        tx = ImmutableMasterTransaction.objects.create(
-            tx_id=f"TXN-{uuid.uuid4().hex[:12].upper()}",
-            user=request.user if request.user.is_authenticated else None,
-            service_type=service,
-            gross_amount=amount,
-            status='SUCCESS'
+        if not order:
+
+            return Response({"error": "Valid order_id is required."}, status=400)
+
+        if order.status != "Pending Payment":
+
+            return Response({"error": "Order is not awaiting payment."}, status=400)
+
+
+
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+        payment_data = {
+
+            "amount": int(money(order.total_price) * 100),
+
+            "currency": "INR",
+
+            "receipt": f"orbiskart_order_{order.id}",
+
+        }
+
+        rp_order = client.order.create(data=payment_data)
+
+        cache.set(
+
+            f"razorpay_order:{rp_order['id']}",
+
+            {"user_id": request.user.id, "order_id": order.id, "amount": payment_data["amount"]},
+
+            timeout=1800,
+
         )
 
         return Response({
-            'success': True,
-            'tx_id': tx.tx_id,
-            'operator_ref': operator_ref,
-            'message': f'{service} सफलतापूर्वक प्रोसेस हो गया!'
-        }, status=status.HTTP_200_OK)
+
+            "razorpay_order_id": rp_order["id"],
+
+            "amount": rp_order["amount"],
+
+            "currency": rp_order["currency"],
+
+            "key_id": settings.RAZORPAY_KEY_ID,
+
+        })
 
 
-# --- 14. Central ECO Live Master Ledger API ---
-class CentralEcoMasterLedgerView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        orders = Order.objects.all().order_by('-created_at')
-        
-        gross_volume = Decimal('0.00')
-        net_company_commission = Decimal('0.00')
-        gst_liability_pool = Decimal('0.00')
-        tcs_collected_pool = Decimal('0.00')
-        gateway_deductions_pool = Decimal('0.00')
-        courier_deductions_pool = Decimal('0.00')
-        seller_payable_pool = Decimal('0.00')
-        
-        master_records = []
-
-        for o in orders:
-            gross = Decimal(str(o.total_price or 0))
-            if gross <= 0:
-                continue
-
-            order_items = o.items.select_related('product', 'vendor', 'product__category_policy').all()
-
-            total_weight = sum((getattr(item.product, 'weight_grams', 500) or 500) * item.quantity for item in order_items)
-            pincode = getattr(o, 'shipping_pincode', None)
-            pay_method = getattr(o, 'payment_method', 'PREPAID')
-
-            courier_charge, chosen_courier, zone, billed_weight = get_best_courier_charge(
-                pincode, total_weight, payment_mode=pay_method
-            )
-
-            if getattr(o, 'delivery_fee', None) and Decimal(str(o.delivery_fee)) > 0:
-                courier_charge = Decimal(str(o.delivery_fee)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            total_platform_fee = Decimal('0.00')
-            for item in order_items:
-                item_price = Decimal(str(item.price)) * item.quantity
-                
-                if hasattr(item.product, 'category_policy') and item.product.category_policy:
-                    comm_pct = Decimal(str(getattr(item.product.category_policy, 'platform_fee_percent', Decimal('3.00'))))
-                elif item_price < Decimal('1000.00'):
-                    comm_pct = Decimal('5.0')
-                else:
-                    comm_pct = Decimal('3.0')
-
-                total_platform_fee += (item_price * (comm_pct / Decimal('100.0')))
-
-            platform_fee = total_platform_fee.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            gateway_fee = (gross * Decimal('0.02')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            gst_on_fee = (platform_fee * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            tcs_gov = (gross * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            total_cuts = gateway_fee + platform_fee + gst_on_fee + tcs_gov + courier_charge
-            seller_net = max(Decimal('0.00'), gross - total_cuts).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            gross_volume += gross
-            net_company_commission += platform_fee
-            gst_liability_pool += gst_on_fee
-            tcs_collected_pool += tcs_gov
-            gateway_deductions_pool += gateway_fee
-            courier_deductions_pool += courier_charge
-            seller_payable_pool += seller_net
-
-            master_records.append({
-                'order_id': f"ORD-{o.id}",
-                'date': o.created_at.strftime('%d %b %Y') if getattr(o, 'created_at', None) else timezone.now().strftime('%d %b %Y'),
-                'buyer': getattr(o.user, 'username', 'Direct Buyer') if o.user else 'Direct Buyer',
-                'gross_amount': float(gross),
-                'gateway_2pct': float(gateway_fee),
-                'platform_fee_3pct': float(platform_fee),
-                'gst_18pct': float(gst_on_fee),
-                'tcs_1pct': float(tcs_gov),
-                'courier_charge': float(courier_charge),
-                'courier_partner': getattr(o, 'courier_partner', chosen_courier) or chosen_courier,
-                'weight_grams': billed_weight,
-                'zone': zone,
-                'seller_net': float(seller_net),
-                'status': getattr(o, 'status', 'Confirmed'),
-                'escrow_status': 'Locked in Escrow (T+2)',
-                'weight_audit': f"{billed_weight}g • {zone} ({chosen_courier})",
-                'utr_ref': f"UTR-ECO-{o.id}-LIVE"
-            })
-
-        return Response({
-            'kpi_summary': {
-                'gross_sales': float(gross_volume),
-                'company_net_profit': float(net_company_commission),
-                'gst_pool_18': float(gst_liability_pool),
-                'tcs_pool_1': float(tcs_collected_pool),
-                'gateway_pool_2': float(gateway_deductions_pool),
-                'courier_pool': float(courier_deductions_pool),
-                'seller_payable_total': float(seller_payable_pool),
-            },
-            'audit_records': master_records
-        }, status=status.HTTP_200_OK)
 
 
-# --- 15. Seller Registration & Compliance API ---
-class RegisterSellerComplianceView(APIView):
-    permission_classes = [permissions.AllowAny]
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    def post(self, request):
-        try:
-            data = request.data
-            store_name = data.get('store_name') or data.get('shop_name', '').strip()
-            owner_name = data.get('owner_name') or data.get('username', '').strip()
-            contact_number = data.get('contact_number') or data.get('mobile_number', '').strip()
-            business_email = data.get('business_email') or data.get('email', '').strip()
-            password = data.get('password', '').strip() or 'OrbisSeller@2026'
-            username = data.get('username', '').strip() or business_email
+class VerifyRazorpayPaymentView(APIView):
 
-            if not store_name or not contact_number:
-                return Response({'error': 'दुकान का नाम और मोबाइल नंबर दर्ज करना अनिवार्य है।'}, status=status.HTTP_400_BAD_REQUEST)
-
-            if User.objects.filter(username=username).exists():
-                return Response({'error': 'यह यूजरनेम पहले से मौजूद है।'}, status=status.HTTP_400_BAD_REQUEST)
-
-            with transaction.atomic():
-                user = User.objects.create_user(username=username, email=business_email, password=password, first_name=owner_name)
-                
-                vendor, _ = VendorProfile.objects.get_or_create(user=user)
-                vendor.store_name = store_name
-                vendor.shop_name = store_name
-                vendor.owner_name = owner_name
-                vendor.contact_number = contact_number
-                vendor.business_email = business_email
-                vendor.email = business_email
-                vendor.street_address = data.get('street_address', '').strip()
-                vendor.business_address = data.get('business_address', '').strip()
-                vendor.city_district = data.get('city_district', '').strip()
-                vendor.state = data.get('state', 'Jharkhand').strip()
-                vendor.pincode = data.get('pincode', '').strip()
-                vendor.gstin = data.get('gstin', '').strip() or data.get('gstin_number', '').strip()
-                vendor.msme_number = data.get('msme_number', '').strip() or data.get('msme_udyam_number', '').strip()
-                vendor.pan_number = data.get('pan_number', '').strip()
-                vendor.bank_name = data.get('bank_name', 'State Bank of India').strip()
-                vendor.bank_account_number = data.get('bank_account_number', '').strip()
-                vendor.bank_ifsc_code = data.get('ifsc_code', '').strip().upper() or data.get('bank_ifsc_code', '').strip().upper()
-                vendor.bank_holder_name = data.get('bank_holder_name', owner_name).strip()
-                
-                if 'shop_gps_photo' in request.FILES:
-                    vendor.shop_gps_photo = request.FILES['shop_gps_photo']
-                if 'pan_doc' in request.FILES:
-                    vendor.pan_doc = request.FILES['pan_doc']
-                if 'identity_proof' in request.FILES:
-                    vendor.identity_proof = request.FILES['identity_proof']
-                if 'business_document' in request.FILES:
-                    vendor.business_document = request.FILES['business_document']
-
-                vendor.penny_drop_verified = True
-                vendor.penny_drop_utr = f"UTR-{uuid.uuid4().hex[:8].upper()}"
-                vendor.is_approved = True
-                vendor.is_verified_seller = True
-                vendor.save()
-
-            return Response({
-                'success': True,
-                'message': f'दुकान "{store_name}" 100% अनुपालन सत्यापन के साथ पंजीकृत हो गई है!',
-                'username': user.username,
-                'store_name': vendor.store_name,
-                'redirect_url': '/seller'
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({'error': f'पंजीकरण त्रुटि: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-# --- 16. Real-Time OTP Send & Verify Views ---
-class SendOtpView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        mobile = request.data.get('mobile_number') or request.data.get('contact_number')
-        if not mobile:
-            return Response({"error": "मोबाइल नंबर दर्ज करना अनिवार्य है।"}, status=status.HTTP_400_BAD_REQUEST)
-
-        otp = str(random.randint(100000, 999999))
-        cache.set(f"otp_{mobile}", otp, timeout=300)
-
-        return Response({
-            "status": "SUCCESS",
-            "message": f"वास्तविक OTP आपके मोबाइल नंबर {mobile} पर सफलतापूर्वक भेज दिया गया है।",
-            "debug_otp": otp
-        }, status=status.HTTP_200_OK)
-
-
-class VerifyOtpView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        mobile = request.data.get('mobile_number') or request.data.get('contact_number')
-        entered_otp = str(request.data.get('otp', '')).strip()
-
-        stored_otp = cache.get(f"otp_{mobile}")
-
-        if not stored_otp or stored_otp != entered_otp:
-            return Response({"error": "गलत या एक्सपायर्ड OTP दर्ज किया गया है।"}, status=status.HTTP_400_BAD_REQUEST)
-
-        cache.delete(f"otp_{mobile}")
-
-        return Response({
-            "status": "SUCCESS",
-            "message": "मोबाइल नंबर का सफल सत्यापन हो गया है।"
-        }, status=status.HTTP_200_OK)
-
-
-# --- 17. Bank Account Smart Lookup & Penny-Drop View ---
-class VerifyBankDetailsView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        account_number = request.data.get('bank_account_number') or request.data.get('account_number')
-        ifsc_code = request.data.get('ifsc_code', '').upper() or request.data.get('ifsc', '').upper()
-
-        if not account_number or not ifsc_code:
-            return Response({"error": "खाता संख्या और IFSC कोड अनिवार्य है।"}, status=status.HTTP_400_BAD_REQUEST)
-
-        bank_name = "State Bank of India"
-        try:
-            ifsc_res = requests.get(f"https://ifsc.razorpay.com/{ifsc_code}", timeout=5)
-            if ifsc_res.status_code == 200:
-                b_info = ifsc_res.json()
-                bank_name = b_info.get('BANK', bank_name)
-        except Exception:
-            pass
-
-        mock_holder_name = request.data.get('owner_name') or "VERIFIED BENEFICIARY"
-        utr_ref = f"UTR-{uuid.uuid4().hex[:8].upper()}"
-
-        return Response({
-            "status": "SUCCESS",
-            "message": "₹1 पेनी-ड्रॉप सफलतापूर्वक सत्यापित हुआ।",
-            "bank_holder_name": mock_holder_name,
-            "bank_name": bank_name,
-            "penny_drop_utr": utr_ref,
-            "is_verified": True
-        }, status=status.HTTP_200_OK)
-
-
-# --- 18. Seller Logout API ---
-class SellerLogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+
+
     def post(self, request):
+
+        rp_order_id = request.data.get("razorpay_order_id")
+
+        payment_id = request.data.get("razorpay_payment_id")
+
+        signature = request.data.get("razorpay_signature")
+
+        cached = cache.get(f"razorpay_order:{rp_order_id}")
+
+
+
+        if not cached or cached.get("user_id") != request.user.id:
+
+            return Response({"error": "Payment session invalid or expired."}, status=400)
+
+
+
+        order = Order.objects.filter(id=cached["order_id"], user=request.user).first()
+
+        if not order:
+
+            return Response({"error": "Order not found."}, status=404)
+
+
+
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+        try:
+
+            client.utility.verify_payment_signature({
+
+                "razorpay_order_id": rp_order_id,
+
+                "razorpay_payment_id": payment_id,
+
+                "razorpay_signature": signature,
+
+            })
+
+        except razorpay.errors.SignatureVerificationError:
+
+            return Response({"error": "भुगतान सत्यापन विफल: अमान्य सिग्नेचर।"}, status=400)
+
+
+
+        with transaction.atomic():
+
+            order = Order.objects.select_for_update().get(id=order.id)
+
+            if order.status != "Confirmed":
+
+                order.status = "Confirmed"
+
+                order.payment_method = "Razorpay-Prepaid"
+
+                order.save(update_fields=["status", "payment_method"])
+
+
+
+                # Current SellerDeductionSlip model stores the final amount only.
+
+                for item in order.items.select_related("vendor", "product", "product__category_policy"):
+
+                    if not item.vendor:
+
+                        continue
+
+                    gross = money(item.price * item.quantity)
+
+                    pg_charge = money(gross * Decimal("0.02"))
+
+                    commission = item.vendor.commission_rate
+
+                    if item.product.category_policy:
+
+                        commission = item.product.category_policy.platform_fee_percent
+
+                    platform_fee = money(gross * Decimal(commission) / Decimal("100"))
+
+                    item_weight = (item.product.weight_grams or 500) * item.quantity
+
+                    courier_charge, _, _, _ = get_best_courier_charge(
+
+                        order.shipping_pincode, item_weight, "PREPAID"
+
+                    )
+
+                    net = max(Decimal("0"), gross - pg_charge - platform_fee - courier_charge)
+
+
+
+                    SellerDeductionSlip.objects.get_or_create(
+
+                        slip_number=f"SLIP-{order.id}-{item.id}",
+
+                        defaults={
+
+                            "vendor": item.vendor,
+
+                            "order": order,
+
+                            "final_settlement_amount": money(net),
+
+                        },
+
+                    )
+
+                    item.vendor_payout = money(net)
+
+                    item.save(update_fields=["vendor_payout"])
+
+
+
+        cache.delete(f"razorpay_order:{rp_order_id}")
+
+        return Response({"success": True, "message": "भुगतान सफलतापूर्वक सत्यापित हुआ।"})
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 9. Utility / Admin Ledger
+
+# ---------------------------------------------------------------------
+
+
+
+class UtilityBillEngineView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
+
+    def post(self, request):
+
+        service = str(request.data.get("service_type", "")).strip()
+
+        amount = money(request.data.get("amount"))
+
+        if not service or amount <= 0:
+
+            return Response({"error": "अमान्य service या राशि"}, status=400)
+
+
+
+        tx = ImmutableMasterTransaction.objects.create(
+
+            tx_id=f"TXN-{uuid.uuid4().hex[:12].upper()}",
+
+            user=request.user,
+
+            service_type=service,
+
+            gross_amount=amount,
+
+            status="SUCCESS",
+
+        )
+
+        return Response({
+
+            "success": True,
+
+            "tx_id": tx.tx_id,
+
+            "operator_ref": f"BBPS-{uuid.uuid4().hex[:10].upper()}",
+
+            "message": f"{service} सफलतापूर्वक प्रोसेस हो गया!",
+
+        })
+
+
+
+
+
+class CentralEcoMasterLedgerView(APIView):
+
+    permission_classes = [permissions.IsAdminUser]
+
+
+
+    def get(self, request):
+
+        orders = Order.objects.prefetch_related("items__product", "items__vendor").order_by("-created_at")
+
+        records = []
+
+        gross_volume = Decimal("0")
+
+        seller_payable = Decimal("0")
+
+
+
+        for order in orders:
+
+            gross = money(order.total_price)
+
+            gross_volume += gross
+
+            payout = sum((item.vendor_payout for item in order.items.all()), Decimal("0"))
+
+            seller_payable += payout
+
+            records.append({
+
+                "order_id": f"ORD-{order.id}",
+
+                "date": order.created_at.isoformat(),
+
+                "buyer": order.user.username,
+
+                "gross_amount": str(gross),
+
+                "delivery_fee": str(order.delivery_fee),
+
+                "seller_payable": str(money(payout)),
+
+                "status": order.status,
+
+                "courier_partner": order.courier_partner,
+
+                "awb_number": order.awb_number,
+
+            })
+
+
+
+        return Response({
+
+            "kpi_summary": {
+
+                "gross_sales": str(money(gross_volume)),
+
+                "seller_payable_total": str(money(seller_payable)),
+
+            },
+
+            "audit_records": records,
+
+        })
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 10. Seller OTP + Registration
+
+# ---------------------------------------------------------------------
+
+
+
+class SendWhatsAppOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        mobile = normalize_mobile(
+            request.data.get("mobile_number") or request.data.get("contact_number")
+        )
+
+        if not mobile or len(mobile) != 12:
+            return Response(
+                {"error": "वैध 10 अंकों का मोबाइल नंबर दर्ज करें।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        throttle_key = f"seller_wa_throttle:{mobile}"
+        if cache.get(throttle_key):
+            return Response(
+                {"error": "OTP दोबारा भेजने से पहले 60 सेकंड प्रतीक्षा करें।"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp = f"{secrets.randbelow(900000) + 100000}"
+        otp_key = f"seller_wa_otp:{mobile}"
+        cache.set(otp_key, otp, timeout=300)
+        cache.set(throttle_key, True, timeout=60)
+
+        whatsapp_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+        whatsapp_url = os.getenv("WHATSAPP_API_URL", "").strip()
+        template_name = os.getenv("WHATSAPP_OTP_TEMPLATE_NAME", "").strip()
+        template_language = os.getenv("WHATSAPP_OTP_TEMPLATE_LANGUAGE", "en_US").strip()
+
+        if not whatsapp_token or not whatsapp_url or not template_name:
+            cache.delete(otp_key)
+            return Response(
+                {
+                    "error": (
+                        "WhatsApp OTP configuration incomplete. "
+                        "WHATSAPP_ACCESS_TOKEN, WHATSAPP_API_URL और "
+                        "WHATSAPP_OTP_TEMPLATE_NAME जांचें।"
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": mobile,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": template_language},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": otp}],
+                    },
+                    {
+                        "type": "button",
+                        "sub_type": "url",
+                        "index": "0",
+                        "parameters": [{"type": "text", "text": otp}],
+                    },
+                ],
+            },
+        }
+
+        try:
+            response = requests.post(
+                whatsapp_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {whatsapp_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            cache.delete(otp_key)
+            return Response(
+                {"error": "WhatsApp service से संपर्क नहीं हो सका।"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if not response.ok:
+            cache.delete(otp_key)
+            return Response(
+                {
+                    "error": "WhatsApp OTP भेजने में विफलता।",
+                    "provider_status": response.status_code,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {"success": True, "message": "WhatsApp OTP भेज दिया गया है।"},
+            status=status.HTTP_200_OK,
+        )
+
+
+class VerifyWhatsAppOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        mobile = normalize_mobile(
+            request.data.get("mobile_number") or request.data.get("contact_number")
+        )
+        entered_otp = str(request.data.get("otp", "")).strip()
+
+        if not mobile or len(mobile) != 12 or not entered_otp:
+            return Response(
+                {"error": "वैध मोबाइल नंबर और OTP दोनों आवश्यक हैं।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        fail_key = f"seller_wa_fail:{mobile}"
+        failures = int(cache.get(fail_key, 0))
+        if failures >= 5:
+            return Response(
+                {"error": "बहुत अधिक गलत OTP प्रयास। 15 मिनट बाद पुनः प्रयास करें।"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp_key = f"seller_wa_otp:{mobile}"
+        stored_otp = cache.get(otp_key)
+        if not stored_otp:
+            return Response(
+                {"error": "WhatsApp OTP expired है। नया OTP भेजें।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not secrets.compare_digest(str(stored_otp), entered_otp):
+            cache.set(fail_key, failures + 1, timeout=900)
+            return Response(
+                {"error": "गलत WhatsApp OTP।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verification_token = secrets.token_urlsafe(32)
+        cache.set(
+            f"seller_wa_verified:{mobile}",
+            verification_token,
+            timeout=900,
+        )
+        cache.delete(otp_key)
+        cache.delete(fail_key)
+
+        return Response(
+            {
+                "success": True,
+                "message": "WhatsApp नंबर सत्यापित हो गया।",
+                "whatsapp_verification_token": verification_token,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class SendEmailOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        mobile = normalize_mobile(request.data.get("mobile_number"))
+        email = str(
+            request.data.get("email") or request.data.get("business_email") or ""
+        ).strip().lower()
+        whatsapp_verification_token = str(
+            request.data.get("whatsapp_verification_token", "")
+        ).strip()
+
+        if not mobile or len(mobile) != 12 or not email:
+            return Response(
+                {"error": "वैध मोबाइल नंबर और ईमेल आवश्यक हैं।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verified_token = cache.get(f"seller_wa_verified:{mobile}")
+        if (
+            not verified_token
+            or not whatsapp_verification_token
+            or not secrets.compare_digest(
+                str(verified_token), whatsapp_verification_token
+            )
+        ):
+            return Response(
+                {"error": "पहले WhatsApp OTP verification पूरा करें।"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        throttle_key = f"seller_email_throttle:{mobile}:{email}"
+        if cache.get(throttle_key):
+            return Response(
+                {"error": "Email OTP दोबारा भेजने से पहले 60 सेकंड प्रतीक्षा करें।"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp = f"{secrets.randbelow(900000) + 100000}"
+        otp_key = f"seller_email_otp:{mobile}:{email}"
+        cache.set(otp_key, otp, timeout=300)
+        cache.set(throttle_key, True, timeout=60)
+
+        try:
+            send_mail(
+                subject="OrbisKart Seller Email Verification",
+                message=(
+                    f"Your OrbisKart seller verification OTP is {otp}. "
+                    "This OTP is valid for 5 minutes. Do not share it with anyone."
+                ),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception:
+            cache.delete(otp_key)
+            return Response(
+                {"error": "Email OTP भेजने में विफलता।"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {"success": True, "message": "Email OTP भेज दिया गया है।"},
+            status=status.HTTP_200_OK,
+        )
+
+
+class VerifyEmailOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        mobile = normalize_mobile(request.data.get("mobile_number"))
+        email = str(
+            request.data.get("email") or request.data.get("business_email") or ""
+        ).strip().lower()
+        entered_otp = str(request.data.get("otp", "")).strip()
+        whatsapp_verification_token = str(
+            request.data.get("whatsapp_verification_token", "")
+        ).strip()
+
+        if not mobile or len(mobile) != 12 or not email or not entered_otp:
+            return Response(
+                {"error": "मोबाइल नंबर, ईमेल और OTP आवश्यक हैं।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        wa_token = cache.get(f"seller_wa_verified:{mobile}")
+        if (
+            not wa_token
+            or not whatsapp_verification_token
+            or not secrets.compare_digest(str(wa_token), whatsapp_verification_token)
+        ):
+            return Response(
+                {"error": "WhatsApp verification session invalid या expired है।"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        fail_key = f"seller_email_fail:{mobile}:{email}"
+        failures = int(cache.get(fail_key, 0))
+        if failures >= 5:
+            return Response(
+                {"error": "बहुत अधिक गलत OTP प्रयास। 15 मिनट बाद पुनः प्रयास करें।"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        otp_key = f"seller_email_otp:{mobile}:{email}"
+        stored_otp = cache.get(otp_key)
+        if not stored_otp:
+            return Response(
+                {"error": "Email OTP expired है। नया OTP भेजें।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not secrets.compare_digest(str(stored_otp), entered_otp):
+            cache.set(fail_key, failures + 1, timeout=900)
+            return Response(
+                {"error": "गलत Email OTP।"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        registration_token = secrets.token_urlsafe(48)
+        cache.set(
+            f"seller_registration_verified:{mobile}:{email}",
+            registration_token,
+            timeout=900,
+        )
+        cache.delete(otp_key)
+        cache.delete(fail_key)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Email सफलतापूर्वक सत्यापित हो गया।",
+                "registration_verification_token": registration_token,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# Temporary compatibility aliases so existing core/urls.py does not break
+# before the new four OTP routes are added there.
+SendOtpView = SendWhatsAppOTPView
+VerifyOtpView = VerifyWhatsAppOTPView
+
+
+
+class RegisterSellerComplianceView(APIView):
+
+    permission_classes = [permissions.AllowAny]
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+
+
+    def post(self, request):
+
+        data = request.data
+
+        username = str(data.get("username", "")).strip()
+
+        password = str(data.get("password", ""))
+
+        email = str(data.get("email", "")).strip().lower()
+
+        mobile = normalize_mobile(data.get("mobile_number"))
+
+        shop_name = str(data.get("shop_name") or data.get("store_name") or "").strip()
+
+        registration_verification_token = str(
+            data.get("registration_verification_token", "")
+        ).strip()
+
+
+
+        if not username or not password or not email or not mobile or not shop_name:
+
+            return Response(
+
+                {"error": "Username, password, email, mobile number और shop name अनिवार्य हैं।"},
+
+                status=400,
+
+            )
+
+        if len(password) < 8:
+
+            return Response({"error": "Password कम से कम 8 characters का होना चाहिए।"}, status=400)
+
+
+
+        server_registration_token = cache.get(
+            f"seller_registration_verified:{mobile}:{email}"
+        )
+        if (
+            not server_registration_token
+            or not registration_verification_token
+            or not secrets.compare_digest(
+                str(server_registration_token), registration_verification_token
+            )
+        ):
+            return Response(
+                {
+                    "error": (
+                        "सुरक्षा त्रुटि: WhatsApp और Email verification "
+                        "पूरा करना अनिवार्य है।"
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+
+
+        if User.objects.filter(username=username).exists():
+
+            return Response({"error": "यह username पहले से पंजीकृत है।"}, status=400)
+
+        if VendorProfile.objects.filter(shop_name=shop_name).exists():
+
+            return Response({"error": "यह shop name पहले से पंजीकृत है।"}, status=400)
+
+
+
+        with transaction.atomic():
+
+            user = User.objects.create_user(
+
+                username=username,
+
+                email=email,
+
+                password=password,
+
+                first_name=str(data.get("owner_name", "")).strip(),
+
+            )
+
+
+
+            # Signal may already have created the profile.
+
+            vendor, _ = VendorProfile.objects.get_or_create(
+
+                user=user,
+
+                defaults={"shop_name": shop_name},
+
+            )
+
+            vendor.shop_name = shop_name
+
+            vendor.store_name = shop_name
+
+            vendor.owner_name = str(data.get("owner_name", "")).strip()
+
+            vendor.mobile_number = mobile
+
+            vendor.email = email
+
+            vendor.business_email = email
+
+            vendor.business_address = str(data.get("business_address", "")).strip()
+
+            vendor.street_address = str(data.get("street_address", "")).strip()
+
+            vendor.city_district = str(data.get("city_district", "")).strip()
+
+            vendor.state = str(data.get("state", "Jharkhand")).strip()
+
+            vendor.pin_code = re_digits(data.get("pincode") or data.get("pin_code"))
+
+
+
+            gstin = str(data.get("gstin_number") or data.get("gstin") or "").strip().upper()
+
+            msme = str(data.get("msme_udyam_number") or data.get("msme_number") or "").strip().upper()
+
+            vendor.gstin_number = gstin or None
+
+            vendor.gstin = gstin or None
+
+            vendor.msme_udyam_number = msme or None
+
+            vendor.msme_number = msme or None
+
+            vendor.pan_number = str(data.get("pan_number", "")).strip().upper() or None
+
+
+
+            vendor.bank_name = str(data.get("bank_name", "")).strip()
+
+            vendor.bank_account_number = re_digits(data.get("bank_account_number"))
+
+            ifsc = str(data.get("ifsc_code") or data.get("bank_ifsc_code") or "").strip().upper()
+
+            vendor.ifsc_code = ifsc
+
+            vendor.bank_ifsc_code = ifsc
+
+            vendor.bank_holder_name = str(data.get("bank_holder_name", "")).strip() or None
+
+
+
+            for field in ("shop_gps_photo", "pan_doc", "identity_proof", "business_document"):
+
+                if field in request.FILES:
+
+                    setattr(vendor, field, request.FILES[field])
+
+
+
+            vendor.terms_accepted = str(data.get("terms_accepted", "")).lower() in ("true", "1", "yes")
+
+            vendor.penny_drop_verified = False
+
+            vendor.bank_account_verified = False
+
+            vendor.is_approved = False
+
+            vendor.is_verified_seller = False
+
+            vendor.wallet_balance = Decimal("0.00")
+
+            vendor.save()
+
+
+
+            profile = getattr(user, "profile", None)
+
+            if profile:
+
+                profile.role = "VENDOR"
+
+                profile.phone_number = mobile
+
+                profile.is_verified = True
+
+                profile.save(update_fields=["role", "phone_number", "is_verified"])
+
+
+
+            cache.delete(f"seller_registration_verified:{mobile}:{email}")
+            cache.delete(f"seller_wa_verified:{mobile}")
+
+
+
+        return Response(
+
+            {
+
+                "success": True,
+
+                "message": "Seller application received. Admin approval के बाद selling सक्रिय होगी।",
+
+                "status": "PENDING",
+
+                "username": user.username,
+
+                "store_name": vendor.store_name,
+
+            },
+
+            status=status.HTTP_201_CREATED,
+
+        )
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 11. Bank lookup / verification
+
+# NOTE: IFSC lookup is real; account-holder verification is NOT faked.
+
+# ---------------------------------------------------------------------
+
+
+
+class VerifyBankDetailsView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
+
+    def post(self, request):
+
+        profile = seller_profile_for(request.user)
+
+        if not profile:
+
+            return Response({"error": "Seller profile not found."}, status=403)
+
+
+
+        account_number = re_digits(request.data.get("bank_account_number") or request.data.get("account_number"))
+
+        ifsc = str(request.data.get("ifsc_code") or request.data.get("ifsc") or "").strip().upper()
+
+        if not account_number or not ifsc:
+
+            return Response({"error": "खाता संख्या और IFSC अनिवार्य हैं।"}, status=400)
+
+
+
+        bank_name = ""
+
+        try:
+
+            response = requests.get(f"https://ifsc.razorpay.com/{ifsc}", timeout=8)
+
+            if response.ok:
+
+                bank_name = response.json().get("BANK", "")
+
+        except requests.RequestException:
+
+            pass
+
+
+
+        # Do not claim penny-drop success without a real payout/account-validation provider.
+
+        profile.bank_name = bank_name
+
+        profile.bank_account_number = account_number
+
+        profile.ifsc_code = ifsc
+
+        profile.bank_ifsc_code = ifsc
+
+        profile.bank_account_verified = False
+
+        profile.penny_drop_verified = False
+
+        profile.save(update_fields=[
+
+            "bank_name", "bank_account_number", "ifsc_code", "bank_ifsc_code",
+
+            "bank_account_verified", "penny_drop_verified"
+
+        ])
+
+
+
+        return Response({
+
+            "status": "PENDING_VERIFICATION",
+
+            "message": "IFSC lookup पूरा हुआ। वास्तविक penny-drop verification provider integration आवश्यक है।",
+
+            "bank_name": bank_name,
+
+            "is_verified": False,
+
+        })
+
+
+
+
+
+# ---------------------------------------------------------------------
+
+# 12. Seller logout / KYC
+
+# ---------------------------------------------------------------------
+
+
+
+class SellerLogoutView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+
+
+    def post(self, request):
+
         logout(request)
-        return Response({"message": "सफलतापूर्वक लॉगआउट हुए।"}, status=status.HTTP_200_OK)
+
+        return Response({"message": "सफलतापूर्वक लॉगआउट हुए।"})
+
+
+
+
+
+class VendorKYCUpdateView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+
+
+    def post(self, request):
+
+        profile = seller_profile_for(request.user)
+
+        if not profile:
+
+            return Response({"error": "Seller profile not found."}, status=404)
+
+
+
+        data = request.data
+
+        editable = {
+
+            "owner_name", "business_address", "street_address", "city_district",
+
+            "state", "pin_code", "gstin_number", "gstin", "msme_udyam_number",
+
+            "msme_number", "pan_number", "bank_name", "bank_holder_name",
+
+            "bank_account_number", "ifsc_code", "bank_ifsc_code",
+
+        }
+
+        for field in editable:
+
+            if field in data:
+
+                setattr(profile, field, str(data.get(field, "")).strip())
+
+
+
+        for field in ("shop_gps_photo", "pan_doc", "identity_proof", "business_document"):
+
+            if field in request.FILES:
+
+                setattr(profile, field, request.FILES[field])
+
+
+
+        # Material KYC changes require fresh admin review.
+
+        profile.is_approved = False
+
+        profile.is_verified_seller = False
+
+        profile.save()
+
+        return Response({
+
+            "success": True,
+
+            "message": "KYC update saved. Re-approval pending.",
+
+            "is_approved": False,
+
+        })
+    # ---------------------------------------------------------------------
+# 13. META WHATSAPP WEBHOOK
+# ---------------------------------------------------------------------
+
+class MetaWhatsAppWebhookView(APIView):
+    """
+    Meta WhatsApp Cloud API Webhook.
+
+    GET  -> Meta webhook verification
+    POST -> WhatsApp webhook events/status updates
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        mode = request.query_params.get("hub.mode")
+        verify_token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+
+        expected_token = os.getenv(
+            "WHATSAPP_WEBHOOK_VERIFY_TOKEN", ""
+        ).strip()
+
+        if (
+            mode == "subscribe"
+            and expected_token
+            and verify_token
+            and challenge
+            and secrets.compare_digest(
+                verify_token.strip(),
+                expected_token
+            )
+        ):
+            return HttpResponse(
+                challenge,
+                content_type="text/plain",
+                status=200,
+            )
+
+        return HttpResponse(
+            "Webhook verification failed",
+            content_type="text/plain",
+            status=403,
+        )
+
+    def post(self, request):
+        """
+        Receive WhatsApp Cloud API webhook events.
+        """
+
+        try:
+            payload = request.data
+
+            if payload.get("object") != "whatsapp_business_account":
+                return Response(
+                    {"status": "ignored"},
+                    status=status.HTTP_200_OK,
+                )
+
+            return Response(
+                {"status": "EVENT_RECEIVED"},
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception:
+            return Response(
+                {"status": "EVENT_RECEIVED"},
+                status=status.HTTP_200_OK,
+            )

@@ -25,35 +25,31 @@ class UserProfile(models.Model):
         return f"{self.user.username} - {self.get_role_display()}"
 
 
-# --- 2. Advanced Vendor / Seller Profile (KYC, Business Docs & Penny Drop Setup) ---
+# --- 2. Advanced Vendor / Seller Profile (KYC & Business Setup) ---
 class VendorProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='vendor_profile')
     
-    # Basic Store & Owner Info
     shop_name = models.CharField(max_length=255, unique=True)
-    store_name = models.CharField(max_length=255, blank=True, null=True) # Compatibility alias
+    store_name = models.CharField(max_length=255, blank=True, null=True)
     owner_name = models.CharField(max_length=255, default='')
     mobile_number = models.CharField(max_length=15, default='')
     email = models.EmailField(blank=True, null=True)
     business_email = models.EmailField(blank=True, null=True)
     
-    # Address Info
     business_address = models.TextField(default='', blank=True)
     street_address = models.TextField(default='', blank=True)
     city_district = models.CharField(max_length=100, default='')
     state = models.CharField(max_length=100, default='Jharkhand')
     pin_code = models.CharField(max_length=10, default='', blank=True)
 
-    # Compliance & Legal Verification Fields (KYC)
     gstin_number = models.CharField(max_length=15, blank=True, null=True)
-    gstin = models.CharField(max_length=15, blank=True, null=True) # Compatibility alias
+    gstin = models.CharField(max_length=15, blank=True, null=True)
     msme_udyam_number = models.CharField(max_length=50, blank=True, null=True)
     msme_number = models.CharField(max_length=50, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
     id_proof_number = models.CharField(max_length=50, blank=True, null=True)
 
-    # Secure Documents Upload
     pan_doc = models.FileField(upload_to='seller_kyc/pan/', null=True, blank=True)
     identity_proof = models.FileField(upload_to='seller_docs/identity/', blank=True, null=True)
     identity_proof_doc = models.FileField(upload_to='seller_kyc/identity/', null=True, blank=True)
@@ -62,7 +58,6 @@ class VendorProfile(models.Model):
     shop_gps_photo = models.ImageField(upload_to='seller_docs/shop_gps/', blank=True, null=True)
     store_photo = models.ImageField(upload_to='seller_stores/', null=True, blank=True)
 
-    # Bank & Penny-Drop Verification
     bank_name = models.CharField(max_length=100, default='')
     bank_holder_name = models.CharField(max_length=255, blank=True, null=True)
     bank_account_name = models.CharField(max_length=150, default='')
@@ -74,9 +69,8 @@ class VendorProfile(models.Model):
     penny_drop_verified = models.BooleanField(default=False)
     penny_drop_utr = models.CharField(max_length=100, blank=True, null=True)
 
-    # Status & Approvals
     is_verified_seller = models.BooleanField(default=False)
-    is_approved = models.BooleanField(default=True)
+    is_approved = models.BooleanField(default=False)
     terms_accepted = models.BooleanField(default=False)
 
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
@@ -87,7 +81,6 @@ class VendorProfile(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
     def save(self, *args, **kwargs):
-        # Sync aliases
         if self.shop_name and not self.store_name:
             self.store_name = self.shop_name
         elif self.store_name and not self.shop_name:
@@ -95,11 +88,9 @@ class VendorProfile(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        status_text = "सत्यापित एवं सक्रिय" if self.is_verified_seller else "सत्यापन लंबित"
-        return f"{self.shop_name or self.store_name} ({status_text})"
+        return f"{self.shop_name or self.store_name}"
 
 
-# --- Automatic Signal: Create VendorProfile on User creation ---
 @receiver(post_save, sender=User)
 def create_seller_profile_automatically(sender, instance, created, **kwargs):
     if created:
@@ -111,17 +102,21 @@ def create_seller_profile_automatically(sender, instance, created, **kwargs):
             counter += 1
 
         VendorProfile.objects.get_or_create(
-            user=instance,
-            defaults={
-                'shop_name': store_name,
-                'store_name': store_name,
-                'email': instance.email or f"{instance.username}@orbiskart.com",
-                'business_email': instance.email or f"{instance.username}@orbiskart.com",
-                'is_verified_seller': True,
-                'is_approved': True,
-                'wallet_balance': Decimal('1500.00')
-            }
-        )
+    user=instance,
+    defaults={
+        'shop_name': store_name,
+        'store_name': store_name,
+        'email': instance.email or f"{instance.username}@orbiskart.com",
+        'business_email': instance.email or f"{instance.username}@orbiskart.com",
+
+        # SECURITY: New seller is NOT trusted automatically
+        'is_verified_seller': False,
+        'is_approved': False,
+
+        # SECURITY: Never give an automatic wallet balance
+        'wallet_balance': Decimal('0.00')
+    }
+)
 
 
 # --- 3. Govt Official HSN / SAC Master Database ---
@@ -133,7 +128,7 @@ class GovtHSNMaster(models.Model):
     last_updated_gov = models.DateField(auto_now=True)
 
     def __str__(self):
-        return f"{self.hsn_code} - {self.description} ({self.gst_rate}%)"
+        return f"{self.hsn_code} - {self.gst_rate}%"
 
 
 # --- 4. Dynamic Category & Tax Policy ---
@@ -163,17 +158,17 @@ class CategoryPolicy(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.name} (HSN: {self.hsn_code}, GST: {self.gst_rate}%)"
+        return self.name
 
 
 # --- 5. Multi-Courier Shipping Rate Card ---
 class ShippingRateCard(models.Model):
     ZONE_CHOICES = [
-        ('Zone A', 'Zone A - Local (Within City)'),
-        ('Zone B', 'Zone B - Regional (Within State)'),
+        ('Zone A', 'Zone A - Local'),
+        ('Zone B', 'Zone B - Regional'),
         ('Zone C', 'Zone C - National Metro'),
         ('Zone D', 'Zone D - Rest of India'),
-        ('Zone E', 'Zone E - Special (NE, J&K)'),
+        ('Zone E', 'Zone E - Special'),
     ]
 
     courier_partner = models.CharField(max_length=50, default='Delhivery')
@@ -192,11 +187,11 @@ class ShippingRateCard(models.Model):
 
 # --- 6. Transparent Product Model ---
 class Product(models.Model):
-    vendor = models.ForeignKey('VendorProfile', on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    vendor = models.ForeignKey(VendorProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
     seller = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seller_products', null=True, blank=True)
-    category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
-    category_policy = models.ForeignKey('CategoryPolicy', on_delete=models.SET_NULL, null=True, blank=True)
-    hsn_record = models.ForeignKey('GovtHSNMaster', on_delete=models.SET_NULL, null=True, blank=True)
+    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name='products')
+    category_policy = models.ForeignKey(CategoryPolicy, on_delete=models.SET_NULL, null=True, blank=True)
+    hsn_record = models.ForeignKey(GovtHSNMaster, on_delete=models.SET_NULL, null=True, blank=True)
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -230,7 +225,7 @@ class Product(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.title} (₹{self.price})"
+        return f"{self.title}"
 
 
 class ProductImage(models.Model):
@@ -262,62 +257,31 @@ class CartItem(models.Model):
 
 # --- 8. Order Model ---
 class Order(models.Model):
-    PAYMENT_CHOICES = [
-        ('COD', 'Cash on Delivery'),
-        ('UPI', 'UPI / QR Code'),
-        ('Razorpay-Prepaid', 'Razorpay Prepaid Online'),
-        ('NET_BANKING', 'Internet Banking'),
-    ]
-
-    STATUS_CHOICES = [
-        ('Confirmed', 'Confirmed'),
-        ('Packed', 'Packed'),
-        ('Shipped', 'Shipped'),
-        ('Out for Delivery', 'Out for Delivery'),
-        ('Delivered', 'Delivered'),
-        ('Cancelled', 'Cancelled'),
-        ('Return Requested', 'Return Requested'),
-        ('Returned & Refunded', 'Returned & Refunded'),
-    ]
-
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     base_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
     total_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    payment_method = models.CharField(max_length=30, choices=PAYMENT_CHOICES, default='COD')
+    payment_method = models.CharField(max_length=30, default='COD')
     shipping_address = models.TextField(default='')
     shipping_pincode = models.CharField(max_length=10, blank=True, null=True)
-    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='Confirmed')
+    status = models.CharField(max_length=50, default='Confirmed')
 
     courier_partner = models.CharField(max_length=100, default='Delhivery Express')
-    courier_contact = models.CharField(max_length=20, default='1800-102-1234')
-    rider_name = models.CharField(max_length=100, blank=True, null=True)
-    rider_contact = models.CharField(max_length=20, blank=True, null=True)
     awb_number = models.CharField(max_length=100, blank=True, null=True)
-    live_tracking_url = models.URLField(max_length=500, blank=True, null=True)
-
     delivery_otp = models.CharField(max_length=6, blank=True, null=True)
     return_otp = models.CharField(max_length=6, blank=True, null=True)
 
     settlement_due_date = models.DateTimeField(null=True, blank=True)
     is_settled_to_vendor = models.BooleanField(default=False)
     vendor_utr = models.CharField(max_length=100, null=True, blank=True)
-
-    support_reference_no = models.CharField(max_length=50, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
-    def save(self, *args, **kwargs):
-        if not self.support_reference_no:
-            self.support_reference_no = f"ORB-SUP-{uuid.uuid4().hex[:8].upper()}"
-        super().save(*args, **kwargs)
-
     def __str__(self):
-        return f"Order #{self.id} - {self.user.username} ({self.status})"
+        return f"Order #{self.id}"
 
 
-# --- 9. Multi-Courier Reconciliation ---
 class OrderShippingReconciliation(models.Model):
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='shipping_recon')
     courier_partner = models.CharField(max_length=50, default='Delhivery')
@@ -334,7 +298,6 @@ class OrderShippingReconciliation(models.Model):
         return f"Recon #{self.order.id}"
 
 
-# --- 10. Order Items ---
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -347,7 +310,6 @@ class OrderItem(models.Model):
         return f"{self.quantity} x {self.product.title}"
 
 
-# --- 11. Seller Deduction Slip ---
 class SellerDeductionSlip(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     vendor = models.ForeignKey(VendorProfile, on_delete=models.CASCADE, related_name='deduction_slips')
@@ -360,7 +322,6 @@ class SellerDeductionSlip(models.Model):
         return f"Slip {self.slip_number}"
 
 
-# --- 12. Reviews ---
 class Review(models.Model):
     product = models.ForeignKey(Product, related_name='reviews', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -372,7 +333,6 @@ class Review(models.Model):
         return f"{self.user.username} - {self.product.title}"
 
 
-# --- 13. Immutable Master Transaction ---
 class ImmutableMasterTransaction(models.Model):
     tx_id = models.CharField(max_length=100, unique=True, editable=False)
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='immutable_txs', null=True, blank=True)
@@ -381,9 +341,6 @@ class ImmutableMasterTransaction(models.Model):
     net_payout = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     status = models.CharField(max_length=30, default='SUCCESS')
     created_at = models.DateTimeField(auto_now_add=True, editable=False)
-
-    def delete(self, *args, **kwargs):
-        raise PermissionError("कानूनी नियम: यह वित्तीय ट्रांजेक्शन कभी डिलीट नहीं किया जा सकता।")
 
     def __str__(self):
         return f"{self.tx_id} - ₹{self.gross_amount}"
