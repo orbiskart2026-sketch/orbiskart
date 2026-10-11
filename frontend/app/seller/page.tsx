@@ -116,7 +116,6 @@ export default function SellerPortalPage() {
         const data = await res.json();
         setSummary(data);
       } else {
-        // डमी डेटा पूरी तरह समाप्त — वास्तविक सेव किए गए डेटा से सिंक
         const savedAccount = typeof window !== 'undefined' ? (localStorage.getItem('seller_bank_account') || '31806014167') : '31806014167';
         const savedIfsc = typeof window !== 'undefined' ? (localStorage.getItem('seller_bank_ifsc') || 'SBIN0000090') : 'SBIN0000090';
         const savedStore = typeof window !== 'undefined' ? (localStorage.getItem('seller_store_name') || 'orbis kart') : 'orbis kart';
@@ -263,7 +262,6 @@ export default function SellerPortalPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-gray-900 pb-20 font-sans">
-      {/* Header */}
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -286,7 +284,6 @@ export default function SellerPortalPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-6 space-y-6">
-        {/* Store Title, Status & Add Product Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
           <div>
             <h1 className="text-xl font-black text-gray-900">
@@ -319,7 +316,6 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* --- पूर्ण सेलर प्रोफ़ाइल एवं KYC विवरण कार्ड --- */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b pb-3">
             <h3 className="text-sm font-black text-gray-800 flex items-center gap-2">
@@ -359,13 +355,12 @@ export default function SellerPortalPage() {
             <div>
               <span className="block text-gray-400 text-[10px] font-bold uppercase">सेटलमेंट बैंक</span>
               <span className="font-bold text-emerald-700 font-mono">
-                {summary?.banking?.bank_name || 'State Bank of India'} • {summary?.banking?.account_masked || 'XXXXXX4167'} ({summary?.banking?.ifsc || 'SBIN0000090'})
+                {summary?.banking?.bank_name || 'State Bank of India'} {summary?.banking?.account_masked || 'XXXXXX4167'} ({summary?.banking?.ifsc || 'SBIN0000090'})
               </span>
             </div>
           </div>
         </div>
 
-        {/* Financial Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
             <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
@@ -402,7 +397,6 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* Deduction Slips Table */}
         <div className="bg-white border border-gray-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider">
@@ -475,10 +469,9 @@ export default function SellerPortalPage() {
           </div>
         </div>
 
-        {/* Zero-Fraud Weight Freeze Guarantee Card */}
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xl">⚖️</span>
+            <span className="text-xl">⚖️️</span>
             <h3 className="text-sm font-black text-blue-900">Zero-Fraud Weight Freeze Guarantee</h3>
           </div>
           <p className="text-xs text-blue-800 leading-relaxed">
@@ -488,7 +481,6 @@ export default function SellerPortalPage() {
         </div>
       </main>
 
-      {/* --- पूर्ण पारदर्शी Add Product Modal (Transparency Engine) --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-gray-100 my-8">
@@ -508,7 +500,6 @@ export default function SellerPortalPage() {
             </div>
 
             <form onSubmit={handleProductSubmit} className="space-y-4 text-xs">
-              {/* 1. Category & Title */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">श्रेणी (Category) *</label>
@@ -540,7 +531,6 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* 2. विवरण */}
               <div>
                 <label className="font-bold text-gray-700 block mb-1">उत्पाद विवरण (Description) *</label>
                 <textarea
@@ -553,7 +543,6 @@ export default function SellerPortalPage() {
                 />
               </div>
 
-              {/* 3. दो रेट (MRP vs Selling Price) & Discount % */}
               <div className="grid grid-cols-3 gap-3 bg-blue-50/50 p-3 rounded-2xl border border-blue-100">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">MRP / पुराना मूल्य (₹) *</label>
@@ -590,7 +579,6 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* 4. Color, Manufacturing Date & Stock */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">रंग / वेरिएंट (Color)</label>
@@ -623,7 +611,6 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* 5. पारदर्शी वज़न सुरक्षा (Weight Freeze) */}
               <div className="bg-amber-50/60 border border-amber-200 p-3.5 rounded-2xl space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-black text-amber-900 flex items-center gap-1.5">
@@ -684,7 +671,6 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* 6. HSN कोड, GST दर & मुख्य फ़ोटो */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">HSN कोड *</label>
@@ -729,7 +715,6 @@ export default function SellerPortalPage() {
                 </div>
               </div>
 
-              {/* 7. मल्टीपल गैलरी फ़ोटोज़ */}
               <div>
                 <label className="font-bold text-gray-700 block mb-1">
                   अतिरिक्त फ़ोटोज़ (Multiple Gallery Images)
@@ -755,7 +740,6 @@ export default function SellerPortalPage() {
                 )}
               </div>
 
-              {/* सबमिट बटन्स */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t">
                 <button
                   type="button"

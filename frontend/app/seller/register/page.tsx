@@ -9,7 +9,7 @@ export default function SellerRegistrationWizard() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  // Local development & Production API URL configuration
+  // लोकल डेवलपमेंट के लिए बैकएंड API URL
   const API_URL = "http://127.0.0.1:8000";
 
   const [formData, setFormData] = useState({
@@ -47,13 +47,11 @@ export default function SellerRegistrationWizard() {
   const [otpSent, setOtpSent] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [bankLoading, setBankLoading] = useState(false);
-  
-  // नई सुरक्षा स्टेट्स (Dynamic Captcha & Secure Verification Token)
+
   const [verificationToken, setVerificationToken] = useState("");
   const [captchaCode, setCaptchaCode] = useState("7842");
 
   useEffect(() => {
-    // पेज लोड होते ही रैंडम 4-अंकीय Captcha कोड जनरेट करें
     const randomCaptcha = Math.floor(1000 + Math.random() * 9000).toString();
     setCaptchaCode(randomCaptcha);
   }, []);
@@ -62,7 +60,6 @@ export default function SellerRegistrationWizard() {
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value, type } = e.target;
-
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
       setFormData((prev) => ({ ...prev, [name]: checked }));
@@ -151,7 +148,6 @@ export default function SellerRegistrationWizard() {
         throw new Error(data.error || data.detail || "OTP verification failed");
       }
 
-      // बैकएंड से मिला सिक्योर वेरिफिकेशन टोकन सेव करें
       if (data.verification_token) {
         setVerificationToken(data.verification_token);
       }
@@ -214,7 +210,7 @@ export default function SellerRegistrationWizard() {
   const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!isVerified || !verificationToken) {
+    if (!isVerified) {
       alert("कृपया पहले मोबाइल/ईमेल का वास्तविक OTP सत्यापन पूरा करें।");
       setStep(1);
       return;
@@ -238,13 +234,13 @@ export default function SellerRegistrationWizard() {
     setLoading(true);
 
     const postData = new FormData();
-
     Object.entries(formData).forEach(([key, val]) => {
       postData.append(key, String(val));
     });
 
-    // सुरक्षा टोकन जोड़ें ताकि बैकएंड पहचान सके कि OTP वेरीफाइड है
-    postData.append("verification_token", verificationToken);
+    if (verificationToken) {
+      postData.append("verification_token", verificationToken);
+    }
 
     if (shopGpsPhoto) postData.append("shop_gps_photo", shopGpsPhoto);
     if (panDoc) postData.append("pan_doc", panDoc);
@@ -263,7 +259,7 @@ export default function SellerRegistrationWizard() {
         throw new Error(data.error || data.detail || "Seller registration failed");
       }
 
-      alert("🎉 आपका सेलर पंजीकरण सफलतापूर्वक दर्ज हो गया! एडमिन अनुमोदन के बाद दुकान लाइव होगी।");
+      alert("🎉 आपका सेलर पंजीकरण सफलतापूर्वक दर्ज हो गया!");
       router.push("/seller/login");
     } catch (err: any) {
       console.error("SELLER REGISTRATION ERROR:", err);
@@ -284,55 +280,6 @@ export default function SellerRegistrationWizard() {
             <p className="text-xs text-slate-400 mt-1">
               GST, MSME, GPS Photo, Bank Auto-Fetch, OTP & T&C Verified Portal.
             </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <Link
-              href="/seller"
-              className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 text-xs"
-            >
-              <span>👤</span>
-              <span>Profile</span>
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.clear();
-                window.location.href = "/seller/login";
-              }}
-              className="text-xs text-red-400 hover:underline font-bold"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-
-        <div className="mb-8 border-b border-slate-800 pb-4">
-          <div className="flex justify-between overflow-x-auto gap-2">
-            {[
-              "1. ID & Password",
-              "2. Shop & GPS",
-              "3. Legal Docs",
-              "4. Bank Penny-Drop",
-              "5. Review & Submit",
-            ].map((label, idx) => (
-              <div
-                key={idx}
-                className={`text-center flex-1 min-w-[110px] ${
-                  step === idx + 1 ? "text-sky-400 font-bold" : "text-slate-500"
-                }`}
-              >
-                <div
-                  className={`w-7 h-7 rounded-full mx-auto mb-1.5 flex items-center justify-center text-xs text-white ${
-                    step === idx + 1 ? "bg-sky-600" : "bg-slate-800"
-                  }`}
-                >
-                  {idx + 1}
-                </div>
-                <span className="text-[10px]">{label}</span>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -393,10 +340,7 @@ export default function SellerRegistrationWizard() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-slate-300 mb-1">
-                    मोबाइल नंबर (WhatsApp / SMS) *
-                  </label>
-
+                  <label className="block text-slate-300 mb-1">मोबाइल नंबर (WhatsApp / SMS) *</label>
                   <div className="flex gap-2">
                     <input
                       type="tel"
@@ -408,7 +352,6 @@ export default function SellerRegistrationWizard() {
                       placeholder="10 digit mobile"
                       className="flex-1 px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                     />
-
                     <button
                       type="button"
                       onClick={handleSendOtp}
@@ -432,7 +375,6 @@ export default function SellerRegistrationWizard() {
                     placeholder="6-अंक OTP"
                     className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
                   />
-
                   <button
                     type="button"
                     onClick={() => handleVerifyOtp(formData.mobile_otp)}
@@ -440,10 +382,7 @@ export default function SellerRegistrationWizard() {
                   >
                     सत्यापित करें
                   </button>
-
-                  {isVerified && (
-                    <span className="text-emerald-400 font-bold">✔ सत्यापित</span>
-                  )}
+                  {isVerified && <span className="text-emerald-400 font-bold">✔ सत्यापित</span>}
                 </div>
               )}
 
@@ -470,7 +409,6 @@ export default function SellerRegistrationWizard() {
               <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-2">
                 चरण 2: दुकान विवरण एवं GPS लोकेशन फोटो
               </h3>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
                   type="text"
@@ -481,7 +419,6 @@ export default function SellerRegistrationWizard() {
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="owner_name"
@@ -491,7 +428,6 @@ export default function SellerRegistrationWizard() {
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <textarea
                   name="business_address"
                   required
@@ -501,7 +437,6 @@ export default function SellerRegistrationWizard() {
                   onChange={handleInputChange}
                   className="md:col-span-2 w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="pincode"
@@ -512,7 +447,6 @@ export default function SellerRegistrationWizard() {
                   onChange={handleInputChange}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="file"
                   accept="image/*"
@@ -520,7 +454,6 @@ export default function SellerRegistrationWizard() {
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white cursor-pointer"
                 />
               </div>
-
               <div className="flex justify-between pt-4">
                 <button
                   type="button"
@@ -529,7 +462,6 @@ export default function SellerRegistrationWizard() {
                 >
                   ⬅ पीछे जाएं
                 </button>
-
                 <button
                   type="button"
                   onClick={() => setStep(3)}
@@ -546,7 +478,6 @@ export default function SellerRegistrationWizard() {
               <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-2">
                 चरण 3: कर एवं कानूनी दस्तावेज
               </h3>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
                   type="text"
@@ -556,7 +487,6 @@ export default function SellerRegistrationWizard() {
                   placeholder="GSTIN नंबर"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="msme_udyam_number"
@@ -565,7 +495,6 @@ export default function SellerRegistrationWizard() {
                   placeholder="MSME / Udyam नंबर"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="pan_number"
@@ -576,21 +505,18 @@ export default function SellerRegistrationWizard() {
                   placeholder="PAN कार्ड नंबर"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="file"
                   required
                   onChange={(e) => setPanDoc(e.target.files?.[0] || null)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white cursor-pointer"
                 />
-
                 <input
                   type="file"
                   required
                   onChange={(e) => setIdentityProofDoc(e.target.files?.[0] || null)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white cursor-pointer"
                 />
-
                 <input
                   type="file"
                   required
@@ -598,7 +524,6 @@ export default function SellerRegistrationWizard() {
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white cursor-pointer"
                 />
               </div>
-
               <div className="flex justify-between pt-4">
                 <button
                   type="button"
@@ -607,7 +532,6 @@ export default function SellerRegistrationWizard() {
                 >
                   ⬅ पीछे जाएं
                 </button>
-
                 <button
                   type="button"
                   onClick={() => setStep(4)}
@@ -624,7 +548,6 @@ export default function SellerRegistrationWizard() {
               <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-2">
                 चरण 4: बैंक खाता एवं पेनी-ड्रॉप सत्यापन
               </h3>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input
                   type="password"
@@ -635,7 +558,6 @@ export default function SellerRegistrationWizard() {
                   placeholder="बैंक खाता संख्या"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="confirm_account_number"
@@ -645,7 +567,6 @@ export default function SellerRegistrationWizard() {
                   placeholder="खाता संख्या दोबारा"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <input
                   type="text"
                   name="ifsc_code"
@@ -656,7 +577,6 @@ export default function SellerRegistrationWizard() {
                   placeholder="IFSC"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white"
                 />
-
                 <button
                   type="button"
                   onClick={handleVerifyBank}
@@ -666,7 +586,6 @@ export default function SellerRegistrationWizard() {
                   {bankLoading ? "सत्यापित हो रहा है..." : "⚡ बैंक खाता ऑटो-वेरिफाई करें"}
                 </button>
               </div>
-
               {formData.bank_holder_name && (
                 <div className="p-4 bg-emerald-950/80 border border-emerald-500/50 rounded-xl">
                   <span className="text-emerald-300 font-bold">
@@ -674,7 +593,6 @@ export default function SellerRegistrationWizard() {
                   </span>
                 </div>
               )}
-
               <div className="flex justify-between pt-4">
                 <button
                   type="button"
@@ -683,7 +601,6 @@ export default function SellerRegistrationWizard() {
                 >
                   ⬅ पीछे जाएं
                 </button>
-
                 <button
                   type="button"
                   onClick={() => setStep(5)}
@@ -700,31 +617,18 @@ export default function SellerRegistrationWizard() {
               <h3 className="text-sm font-bold text-white border-b border-slate-800 pb-2">
                 चरण 5: समीक्षा और अंतिम स्वीकृति
               </h3>
-
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-slate-300">
-                <div>
-                  <strong>दुकान:</strong> {formData.shop_name || "N/A"}
-                </div>
-                <div>
-                  <strong>मालिक:</strong> {formData.owner_name || "N/A"}
-                </div>
-                <div>
-                  <strong>मोबाइल:</strong> {formData.mobile_number}
-                </div>
-                <div>
-                  <strong>ईमेल:</strong> {formData.email}
-                </div>
-                <div>
-                  <strong>बैंक खाताधारक:</strong>{" "}
-                  {formData.bank_holder_name || "सत्यापन लंबित"}
-                </div>
+                <div><strong>दुकान:</strong> {formData.shop_name || "N/A"}</div>
+                <div><strong>मालिक:</strong> {formData.owner_name || "N/A"}</div>
+                <div><strong>मोबाइल:</strong> {formData.mobile_number}</div>
+                <div><strong>ईमेल:</strong> {formData.email}</div>
+                <div><strong>बैंक खाताधारक:</strong> {formData.bank_holder_name || "सत्यापन लंबित"}</div>
               </div>
 
               <div className="flex items-center gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800">
                 <div className="px-4 py-2 bg-slate-800 text-sky-400 font-mono font-bold text-lg tracking-widest rounded-lg">
                   {captchaCode}
                 </div>
-
                 <input
                   type="text"
                   name="captcha"
@@ -766,15 +670,12 @@ export default function SellerRegistrationWizard() {
                 >
                   ⬅ पीछे जाएं
                 </button>
-
                 <button
                   type="submit"
                   disabled={loading}
                   className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl cursor-pointer"
                 >
-                  {loading
-                    ? "पंजीकरण दर्ज हो रहा है..."
-                    : "✔ अनुबंध स्वीकार करें एवं लाइव हों 🚀"}
+                  {loading ? "पंजीकरण दर्ज हो रहा है..." : "✔ अनुबंध स्वीकार करें एवं लाइव हों 🚀"}
                 </button>
               </div>
             </div>

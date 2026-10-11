@@ -26,7 +26,6 @@ export default function NewProductUploadPage() {
   const [galleryImages, setGalleryImages] = useState<File[]>([]);
   const [video, setVideo] = useState<File | null>(null);
 
-  // मल्टीपल गैलरी इमेजेज सेलेक्ट हैंडलर
   const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const filesArray = Array.from(e.target.files);
@@ -39,6 +38,18 @@ export default function NewProductUploadPage() {
 
     if (!form.title.trim() || !form.price.trim() || !primaryImage || !packagePhoto) {
       alert('कृपया उत्पाद का नाम, विक्रय मूल्य, मुख्य फ़ोटो और Weight Freeze पार्सल फ़ोटो अवश्य भरें।');
+      return;
+    }
+
+    // सुरक्षित रूप से लोकल स्टोरेज से टोकन प्राप्त करें (सारे संभावित नाम चेक किए जाएंगे)
+    const token = 
+      localStorage.getItem('access_token') || 
+      localStorage.getItem('token') || 
+      localStorage.getItem('auth_token');
+
+    if (!token) {
+      alert('⚠️ प्रमाणीकरण त्रुटि: आपका सेलर सेशन समाप्त हो गया है या आप लॉगिन नहीं हैं। कृपया फिर से लॉगिन करें।');
+      router.push('/seller/login');
       return;
     }
 
@@ -55,13 +66,9 @@ export default function NewProductUploadPage() {
       formData.append('package_width_cm', form.package_width_cm || '10.0');
       formData.append('package_height_cm', form.package_height_cm || '5.0');
 
-      // मुख्य थंबनेल फ़ोटो
       formData.append('image', primaryImage);
-
-      // Weight Freeze पार्सल फ़ोटो
       formData.append('package_photo', packagePhoto);
 
-      // मल्टीपल गैलरी फ़ोटो (लूप में अलग-अलग फाइल अपेंड करना)
       if (galleryImages.length > 0) {
         galleryImages.forEach((file) => {
           formData.append('gallery_images', file);
@@ -72,29 +79,26 @@ export default function NewProductUploadPage() {
         formData.append('video', video);
       }
 
-      const token = localStorage.getItem('access_token');
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       const res = await fetch(`${API_BASE_URL}/api/products/`, {
         method: 'POST',
-        headers: headers,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // ध्यान दें: FormData भेजते समय "Content-Type" हेडर नहीं देना चाहिए, ब्राउज़र इसे खुद सेट करता है।
+        },
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok && (data.success || data.product_id)) {
-        alert(`🎉 सफलता! उत्पाद #${data.product_id || ''} (${galleryImages.length} गैलरी फ़ोटो सहित) लाइव पब्लिश हो गया और Django Admin में उपलब्ध है!`);
+        alert(`🎉 सफलता! उत्पाद #${data.product_id || ''} लाइव पब्लिश हो गया!`);
         router.push('/seller');
       } else {
-        alert(`अपलोड विफल: ${data.error || JSON.stringify(data)}`);
+        throw new Error(data.error || data.detail || JSON.stringify(data));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Upload error:', err);
-      alert('सर्वर से संपर्क नहीं हो सका। कृपया इंटरनेट कनेक्शन जाँचें।');
+      alert(`❌ अपलोड विफल: ${err.message || 'सर्वर से संपर्क नहीं हो सका।'}`);
     } finally {
       setLoading(false);
     }
@@ -114,7 +118,6 @@ export default function NewProductUploadPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6 text-xs">
-          {/* बुनियादी विवरण */}
           <div className="space-y-4">
             <div>
               <label className="block text-slate-300 mb-1">उत्पाद का शीर्षक (Title) *</label>
@@ -166,7 +169,6 @@ export default function NewProductUploadPage() {
             </div>
           </div>
 
-          {/* Weight Freeze Engine */}
           <div className="p-5 bg-indigo-950/30 border border-indigo-500/40 rounded-2xl space-y-4">
             <div className="flex items-center gap-2">
               <span className="text-base">⚖️</span>
@@ -238,7 +240,6 @@ export default function NewProductUploadPage() {
             </div>
           </div>
 
-          {/* मीडिया: मुख्य फोटो, मल्टीपल गैलरी फोटो और वीडियो */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-slate-300 mb-1">मुख्य उत्पाद फ़ोटो (Primary Image) *</label>
